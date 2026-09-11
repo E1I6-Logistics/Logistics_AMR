@@ -1,0 +1,1948 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.9">
+  <world name="amr_workcell">
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics" />
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands" />
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster" />
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu" />
+    <physics name="physics" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+    <gravity>0 0 -9.8</gravity>
+    <scene>
+      <ambient>.7 .7 .7 1</ambient>
+      <background>.16 .20 .24 1</background>
+      <shadows>true</shadows>
+    </scene>
+    <light name="warehouse_light" type="directional">
+      <pose>0 0 8 0 0 0</pose>
+      <direction>-.3 .5 -1</direction>
+      <diffuse>.9 .9 .9 1</diffuse>
+      <cast_shadows>true</cast_shadows>
+    </light>
+    <model name="original_layout">
+      <static>true</static>
+      <link name="map">
+        <collision name="original_stl_collision">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/my_map.stl</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name="wall_0">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_00.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.65 .71 .74 1</ambient>
+            <diffuse>.65 .71 .74 1</diffuse>
+          </material>
+        </visual>
+        <visual name="wall_1">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_01.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.65 .71 .74 1</ambient>
+            <diffuse>.65 .71 .74 1</diffuse>
+          </material>
+        </visual>
+        <visual name="wall_2">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_02.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.65 .71 .74 1</ambient>
+            <diffuse>.65 .71 .74 1</diffuse>
+          </material>
+        </visual>
+        <visual name="wall_3">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_03.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.65 .71 .74 1</ambient>
+            <diffuse>.65 .71 .74 1</diffuse>
+          </material>
+        </visual>
+        <visual name="wall_4">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_04.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.65 .71 .74 1</ambient>
+            <diffuse>.65 .71 .74 1</diffuse>
+          </material>
+        </visual>
+        <visual name="wall_5">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_05.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.65 .71 .74 1</ambient>
+            <diffuse>.65 .71 .74 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_6">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_06.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_7">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_07.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_8">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_08.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_9">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_09.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_10">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_10.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_11">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_11.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="belt_12">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_12.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.10 .13 .15 1</ambient>
+            <diffuse>.10 .13 .15 1</diffuse>
+          </material>
+        </visual>
+        <visual name="bench_13">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_13.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.18 .35 .43 1</ambient>
+            <diffuse>.18 .35 .43 1</diffuse>
+          </material>
+        </visual>
+        <visual name="bench_14">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_14.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.18 .35 .43 1</ambient>
+            <diffuse>.18 .35 .43 1</diffuse>
+          </material>
+        </visual>
+        <visual name="arm_15">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_15.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.97 .38 .055 1</ambient>
+            <diffuse>.97 .38 .055 1</diffuse>
+          </material>
+        </visual>
+        <visual name="arm_16">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_16.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.97 .38 .055 1</ambient>
+            <diffuse>.97 .38 .055 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_17.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_18.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_19.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_20.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="bench_21">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_21.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.18 .35 .43 1</ambient>
+            <diffuse>.18 .35 .43 1</diffuse>
+          </material>
+        </visual>
+        <visual name="bench_22">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_22.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.18 .35 .43 1</ambient>
+            <diffuse>.18 .35 .43 1</diffuse>
+          </material>
+        </visual>
+        <visual name="floor_23">
+          <geometry>
+            <mesh>
+              <uri>../models/my_workbench_map/meshes/part_23.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>.32 .36 .38 1</ambient>
+            <diffuse>.32 .36 .38 1</diffuse>
+          </material>
+        </visual>
+        <visual name="foundation_visual">
+          <pose>-0.25 0 -0.045 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>7.5 8.6 0.09</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.32 .36 .38 1</ambient>
+            <diffuse>.32 .36 .38 1</diffuse>
+          </material>
+        </visual>
+        <collision name="foundation_collision">
+          <pose>-0.25 0 -0.045 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>7.5 8.6 0.09</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="pallet_17_slat_0_visual">
+          <pose>-2.92 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17_slat_1_visual">
+          <pose>-2.752 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17_slat_2_visual">
+          <pose>-2.584 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17_slat_3_visual">
+          <pose>-2.416 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17_slat_4_visual">
+          <pose>-2.2479999999999998 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17_slat_5_visual">
+          <pose>-2.08 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17_fork_-0.32_visual">
+          <pose>-2.82 2.8970000953674315 0.22 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.23 0.008 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17_fork_0.32_visual">
+          <pose>-2.18 2.8970000953674315 0.22 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.23 0.008 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_17_label_visual">
+          <pose>-2.5 2.890000095367432 0.48 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.24 0.012 0.1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.90 .94 .94 1</ambient>
+            <diffuse>.90 .94 .94 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_slat_0_visual">
+          <pose>-0.9199999999999999 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_slat_1_visual">
+          <pose>-0.7519999999999999 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_slat_2_visual">
+          <pose>-0.5839999999999999 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_slat_3_visual">
+          <pose>-0.4159999999999999 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_slat_4_visual">
+          <pose>-0.2479999999999999 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_slat_5_visual">
+          <pose>-0.07999999999999985 3.4000000953674316 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_fork_-0.32_visual">
+          <pose>-0.8200000000000001 2.8970000953674315 0.22 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.23 0.008 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_fork_0.32_visual">
+          <pose>-0.18 2.8970000953674315 0.22 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.23 0.008 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_18_label_visual">
+          <pose>-0.5 2.890000095367432 0.48 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.24 0.012 0.1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.90 .94 .94 1</ambient>
+            <diffuse>.90 .94 .94 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_slat_0_visual">
+          <pose>-0.9199999999999999 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_slat_1_visual">
+          <pose>-0.7519999999999999 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_slat_2_visual">
+          <pose>-0.5839999999999999 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_slat_3_visual">
+          <pose>-0.4159999999999999 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_slat_4_visual">
+          <pose>-0.2479999999999999 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_slat_5_visual">
+          <pose>-0.07999999999999985 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_fork_-0.32_visual">
+          <pose>-0.8200000000000001 1.096999964237213 0.22 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.23 0.008 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_fork_0.32_visual">
+          <pose>-0.18 1.096999964237213 0.22 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.23 0.008 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_19_label_visual">
+          <pose>-0.5 1.0899999642372131 0.48 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.24 0.012 0.1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.90 .94 .94 1</ambient>
+            <diffuse>.90 .94 .94 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_slat_0_visual">
+          <pose>-2.92 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_slat_1_visual">
+          <pose>-2.752 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_slat_2_visual">
+          <pose>-2.584 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_slat_3_visual">
+          <pose>-2.416 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_slat_4_visual">
+          <pose>-2.2479999999999998 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_slat_5_visual">
+          <pose>-2.08 1.5999999642372131 0.61 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.13 0.97 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.52 .33 .16 1</ambient>
+            <diffuse>.52 .33 .16 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_fork_-0.32_visual">
+          <pose>-2.82 1.096999964237213 0.22 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.23 0.008 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_fork_0.32_visual">
+          <pose>-2.18 1.096999964237213 0.22 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.23 0.008 0.2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="pallet_20_label_visual">
+          <pose>-2.5 1.0899999642372131 0.48 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.24 0.012 0.1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.90 .94 .94 1</ambient>
+            <diffuse>.90 .94 .94 1</diffuse>
+          </material>
+        </visual>
+        <visual name="arm_0_turntable_visual">
+          <pose>-2.5 2.5 0.66 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.17</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_turntable_collision">
+          <pose>-2.5 2.5 0.66 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.17</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_0_pedestal_visual">
+          <pose>-2.5 2.5 0.84 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.11</radius>
+              <length>0.26</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.90 .94 .94 1</ambient>
+            <diffuse>.90 .94 .94 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_pedestal_collision">
+          <pose>-2.5 2.5 0.84 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.11</radius>
+              <length>0.26</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_0_upper_visual">
+          <pose>-2.5 2.375 1.2349999999999999 0 0.45577375597670555 -1.5707963267948966</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.085</radius>
+              <length>0.567978872846517</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.97 .38 .055 1</ambient>
+            <diffuse>.97 .38 .055 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_upper_collision">
+          <pose>-2.5 2.375 1.2349999999999999 0 0.45577375597670555 -1.5707963267948966</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.085</radius>
+              <length>0.567978872846517</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_0_forearm_visual">
+          <pose>-2.5 2.065 1.3599999999999999 0 2.1833338834052 -1.5707963267948966</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.065</radius>
+              <length>0.4522167621838006</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.97 .38 .055 1</ambient>
+            <diffuse>.97 .38 .055 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_forearm_collision">
+          <pose>-2.5 2.065 1.3599999999999999 0 2.1833338834052 -1.5707963267948966</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.065</radius>
+              <length>0.4522167621838006</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_0_joint_0_visual">
+          <pose>-2.5 2.5 0.98 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.17</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_joint_0_collision">
+          <pose>-2.5 2.5 0.98 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.17</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_0_joint_1_visual">
+          <pose>-2.5 2.25 1.49 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.17</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_joint_1_collision">
+          <pose>-2.5 2.25 1.49 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.17</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_0_joint_2_visual">
+          <pose>-2.5 1.88 1.23 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.075</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_joint_2_collision">
+          <pose>-2.5 1.88 1.23 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.075</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_0_wrist_visual">
+          <pose>-2.5 1.88 1.13 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.055</radius>
+              <length>0.14</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_wrist_collision">
+          <pose>-2.5 1.88 1.13 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.055</radius>
+              <length>0.14</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_0_gripper_visual">
+          <pose>-2.5 1.88 1.04 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.19 0.1 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_gripper_collision">
+          <pose>-2.5 1.88 1.04 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.19 0.1 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="arm_0_finger_-0.078_visual">
+          <pose>-2.578 1.88 0.97 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.08 0.12</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_finger_-0.078_collision">
+          <pose>-2.578 1.88 0.97 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.08 0.12</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="arm_0_finger_0.078_visual">
+          <pose>-2.422 1.88 0.97 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.08 0.12</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_0_finger_0.078_collision">
+          <pose>-2.422 1.88 0.97 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.08 0.12</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="arm_1_turntable_visual">
+          <pose>-0.5 2.5 0.66 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.17</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_turntable_collision">
+          <pose>-0.5 2.5 0.66 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.17</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_1_pedestal_visual">
+          <pose>-0.5 2.5 0.84 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.11</radius>
+              <length>0.26</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.90 .94 .94 1</ambient>
+            <diffuse>.90 .94 .94 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_pedestal_collision">
+          <pose>-0.5 2.5 0.84 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.11</radius>
+              <length>0.26</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_1_upper_visual">
+          <pose>-0.5 2.375 1.2349999999999999 0 0.45577375597670555 -1.5707963267948966</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.085</radius>
+              <length>0.567978872846517</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.97 .38 .055 1</ambient>
+            <diffuse>.97 .38 .055 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_upper_collision">
+          <pose>-0.5 2.375 1.2349999999999999 0 0.45577375597670555 -1.5707963267948966</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.085</radius>
+              <length>0.567978872846517</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_1_forearm_visual">
+          <pose>-0.5 2.065 1.3599999999999999 0 2.1833338834052 -1.5707963267948966</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.065</radius>
+              <length>0.4522167621838006</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.97 .38 .055 1</ambient>
+            <diffuse>.97 .38 .055 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_forearm_collision">
+          <pose>-0.5 2.065 1.3599999999999999 0 2.1833338834052 -1.5707963267948966</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.065</radius>
+              <length>0.4522167621838006</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_1_joint_0_visual">
+          <pose>-0.5 2.5 0.98 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.17</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_joint_0_collision">
+          <pose>-0.5 2.5 0.98 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.17</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_1_joint_1_visual">
+          <pose>-0.5 2.25 1.49 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.17</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_joint_1_collision">
+          <pose>-0.5 2.25 1.49 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.105</radius>
+              <length>0.17</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_1_joint_2_visual">
+          <pose>-0.5 1.88 1.23 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.075</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_joint_2_collision">
+          <pose>-0.5 1.88 1.23 0 1.5707963267948966 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.075</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_1_wrist_visual">
+          <pose>-0.5 1.88 1.13 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.055</radius>
+              <length>0.14</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_wrist_collision">
+          <pose>-0.5 1.88 1.13 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.055</radius>
+              <length>0.14</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="arm_1_gripper_visual">
+          <pose>-0.5 1.88 1.04 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.19 0.1 0.06</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_gripper_collision">
+          <pose>-0.5 1.88 1.04 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.19 0.1 0.06</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="arm_1_finger_-0.078_visual">
+          <pose>-0.578 1.88 0.97 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.08 0.12</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_finger_-0.078_collision">
+          <pose>-0.578 1.88 0.97 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.08 0.12</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="arm_1_finger_0.078_visual">
+          <pose>-0.422 1.88 0.97 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.08 0.12</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <collision name="arm_1_finger_0.078_collision">
+          <pose>-0.422 1.88 0.97 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.08 0.12</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="worktop_-0.2_visual">
+          <pose>-2.5 -0.2 0.411 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1 0.39 0.022</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="bench_trim_-0.2_visual">
+          <pose>-2.5 -0.305 0.34 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1 0.012 0.07</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.18 .35 .43 1</ambient>
+            <diffuse>.18 .35 .43 1</diffuse>
+          </material>
+        </visual>
+        <visual name="worktop_-1.1_visual">
+          <pose>-2.7 -1.1 0.411 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1.4 0.19 0.022</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="bench_trim_-1.1_visual">
+          <pose>-2.7 -1.205 0.34 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1.4 0.012 0.07</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.18 .35 .43 1</ambient>
+            <diffuse>.18 .35 .43 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_belt_visual">
+          <pose>-3.5 -2 0.414 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 4 0.025</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.10 .13 .15 1</ambient>
+            <diffuse>.10 .13 .15 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_0_visual">
+          <pose>-3.5 -3.92 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_1_visual">
+          <pose>-3.5 -3.76 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_2_visual">
+          <pose>-3.5 -3.6 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_3_visual">
+          <pose>-3.5 -3.44 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_4_visual">
+          <pose>-3.5 -3.28 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_5_visual">
+          <pose>-3.5 -3.12 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_6_visual">
+          <pose>-3.5 -2.96 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_7_visual">
+          <pose>-3.5 -2.8 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_8_visual">
+          <pose>-3.5 -2.6399999999999997 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_9_visual">
+          <pose>-3.5 -2.48 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_10_visual">
+          <pose>-3.5 -2.32 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_11_visual">
+          <pose>-3.5 -2.16 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_12_visual">
+          <pose>-3.5 -2.0 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_13_visual">
+          <pose>-3.5 -1.8399999999999999 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_14_visual">
+          <pose>-3.5 -1.6799999999999997 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_15_visual">
+          <pose>-3.5 -1.52 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_16_visual">
+          <pose>-3.5 -1.3599999999999999 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_17_visual">
+          <pose>-3.5 -1.1999999999999997 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_18_visual">
+          <pose>-3.5 -1.04 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_19_visual">
+          <pose>-3.5 -0.8799999999999999 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_20_visual">
+          <pose>-3.5 -0.7199999999999998 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_21_visual">
+          <pose>-3.5 -0.56 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_22_visual">
+          <pose>-3.5 -0.3999999999999999 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_23_visual">
+          <pose>-3.5 -0.23999999999999977 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_seam_24_visual">
+          <pose>-3.5 -0.08000000000000007 0.428 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.16 0.018 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_rail_-3.595_visual">
+          <pose>-3.595 -2 0.44 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.018 4 0.08</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="conveyor_rail_-3.405_visual">
+          <pose>-3.405 -2 0.44 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.018 4 0.08</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_0_charger_visual">
+          <pose>2.86 -1.27 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.18 0.32 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="dock_0_charger_collision">
+          <pose>2.86 -1.27 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.18 0.32 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="dock_0_face_visual">
+          <pose>2.758 -1.27 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.024 0.27 0.39</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_0_screen_visual">
+          <pose>2.741 -1.27 0.95 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.014 0.14 0.08</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_0_led_visual">
+          <pose>2.73 -1.27 1.04 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.016 0.16 0.022</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.08 .9 .45 1</ambient>
+            <diffuse>.08 .9 .45 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_0_contact_-0.08_visual">
+          <pose>2.725 -1.35 0.74 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.035 0.09</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_0_contact_0.08_visual">
+          <pose>2.725 -1.19 0.74 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.035 0.09</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_1_charger_visual">
+          <pose>2.86 0 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.18 0.32 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="dock_1_charger_collision">
+          <pose>2.86 0 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.18 0.32 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="dock_1_face_visual">
+          <pose>2.758 0 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.024 0.27 0.39</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_1_screen_visual">
+          <pose>2.741 0 0.95 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.014 0.14 0.08</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_1_led_visual">
+          <pose>2.73 0 1.04 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.016 0.16 0.022</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.08 .9 .45 1</ambient>
+            <diffuse>.08 .9 .45 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_1_contact_-0.08_visual">
+          <pose>2.725 -0.08 0.74 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.035 0.09</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_1_contact_0.08_visual">
+          <pose>2.725 0.08 0.74 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.035 0.09</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_2_charger_visual">
+          <pose>2.86 1.27 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.18 0.32 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <collision name="dock_2_charger_collision">
+          <pose>2.86 1.27 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.18 0.32 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="dock_2_face_visual">
+          <pose>2.758 1.27 0.85 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.024 0.27 0.39</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.58 .63 .66 1</ambient>
+            <diffuse>.58 .63 .66 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_2_screen_visual">
+          <pose>2.741 1.27 0.95 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.014 0.14 0.08</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.07 .10 .13 1</ambient>
+            <diffuse>.07 .10 .13 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_2_led_visual">
+          <pose>2.73 1.27 1.04 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.016 0.16 0.022</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.08 .9 .45 1</ambient>
+            <diffuse>.08 .9 .45 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_2_contact_-0.08_visual">
+          <pose>2.725 1.19 0.74 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.035 0.09</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+        <visual name="dock_2_contact_0.08_visual">
+          <pose>2.725 1.35 0.74 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.025 0.035 0.09</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>.95 .62 .06 1</ambient>
+            <diffuse>.95 .62 .06 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <gui fullscreen="0">
+      <plugin filename="MinimalScene" name="3D View">
+        <gz-gui>
+          <title>3D View</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="string" key="state">docked</property>
+        </gz-gui>
+        <engine>ogre2</engine>
+        <scene>scene</scene>
+        <ambient_light>0.4 0.4 0.4</ambient_light>
+        <background_color>0.8 0.8 0.8</background_color>
+        <camera_pose>0 -5 16 0 1.21 1.5708</camera_pose>
+      </plugin>
+      <plugin filename="EntityContextMenuPlugin" name="Entity context menu">
+        <gz-gui>
+          <property key="state" type="string">floating</property>
+          <property key="width" type="double">5</property>
+          <property key="height" type="double">5</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="GzSceneManager" name="Scene Manager">
+        <gz-gui>
+          <property key="resizable" type="bool">false</property>
+          <property key="width" type="double">5</property>
+          <property key="height" type="double">5</property>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="InteractiveViewControl" name="Interactive view control">
+        <gz-gui>
+          <property key="resizable" type="bool">false</property>
+          <property key="width" type="double">5</property>
+          <property key="height" type="double">5</property>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="CameraTracking" name="Camera Tracking">
+        <gz-gui>
+          <property key="resizable" type="bool">false</property>
+          <property key="width" type="double">5</property>
+          <property key="height" type="double">5</property>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="WorldControl" name="World control">
+        <gz-gui>
+          <title>World control</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">72</property>
+          <property type="double" key="z">1</property>
+          <property type="string" key="state">floating</property>
+          <anchors target="3D View">
+            <line own="left" target="left" />
+            <line own="bottom" target="bottom" />
+          </anchors>
+        </gz-gui>
+        <play_pause>true</play_pause>
+        <step>true</step>
+        <start_paused>true</start_paused>
+        <use_event>true</use_event>
+      </plugin>
+      <plugin filename="WorldStats" name="World stats">
+        <gz-gui>
+          <title>World stats</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">110</property>
+          <property type="double" key="width">290</property>
+          <property type="double" key="z">1</property>
+          <property type="string" key="state">floating</property>
+          <anchors target="3D View">
+            <line own="right" target="right" />
+            <line own="bottom" target="bottom" />
+          </anchors>
+        </gz-gui>
+        <sim_time>true</sim_time>
+        <real_time>true</real_time>
+        <real_time_factor>true</real_time_factor>
+        <iterations>true</iterations>
+      </plugin>
+      <plugin filename="ComponentInspector" name="Component inspector">
+        <gz-gui>
+          <property type="string" key="state">docked</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="EntityTree" name="Entity tree">
+        <gz-gui>
+          <property type="string" key="state">docked</property>
+        </gz-gui>
+      </plugin>
+    </gui>
+  </world>
+</sdf>

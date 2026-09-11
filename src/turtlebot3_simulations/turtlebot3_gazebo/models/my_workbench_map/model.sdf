@@ -1,0 +1,56 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <model name="workbench_station">
+    <!-- 주변 환경 구조물이므로 고정(Static) 상태로 설정 -->
+    <static>true</static>
+    
+    <link name="workbench_link">
+      
+      <!-- 1. 시각적으로 보여지는 부분 (Visual) -->
+      <visual name="workbench_visual">
+        <geometry>
+          <mesh>
+            <uri>model://my_workbench_map/meshes/my_map.stl</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+        <!-- 양면 렌더링 활성화 -->
+        <material>
+          <ambient>0.6 0.6 0.6 1</ambient>
+          <diffuse>0.6 0.6 0.6 1</diffuse>
+          <double_sided>true</double_sided>
+        </material>
+      </visual>
+
+      <!-- 2. 물리적 충돌 영역 (Collision) -->
+      <collision name="workbench_collision">
+        <geometry>
+          <mesh>
+            <uri>model://my_workbench_map/meshes/my_map.stl</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+        <!-- 지면 마찰력 및 접촉 특성 보강 -->
+        <surface>
+          <friction>
+            <ode>
+              <!-- 구동 바퀴 접지력을 위한 마찰 계수 상향 (기본 0.5 -> 1.0) -->
+              <mu>1.0</mu>
+              <mu2>1.0</mu2>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <!-- 바닥 메쉬를 뚫고 들어갔다 튕겨 나오는 현상 방지 -->
+              <kp>10000000.0</kp>
+              <kd>1.0</kd>
+              <min_depth>0.001</min_depth>
+              <max_vel>0.01</max_vel>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+
+    </link>
+  </model>
+</sdf>
