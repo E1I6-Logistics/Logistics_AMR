@@ -30,26 +30,8 @@
             <scale>1 1 1</scale>
           </mesh>
         </geometry>
-        <!-- 지면 마찰력 및 접촉 특성 보강 -->
-        <surface>
-          <friction>
-            <ode>
-              <!-- 구동 바퀴 접지력을 위한 마찰 계수 상향 (기본 0.5 -> 1.0) -->
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
-            </ode>
-          </friction>
-          <contact>
-            <ode>
-              <!-- 바닥 메쉬를 뚫고 들어갔다 튕겨 나오는 현상 방지 -->
-              <kp>10000000.0</kp>
-              <kd>1.0</kd>
-              <min_depth>0.001</min_depth>
-              <max_vel>0.01</max_vel>
-            </ode>
-          </contact>
-        </surface>
       </collision>
+      
 
     </link>
   </model>
