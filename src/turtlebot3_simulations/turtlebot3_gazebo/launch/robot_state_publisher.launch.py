@@ -58,5 +58,9 @@ def generate_launch_description():
                 'robot_description': robot_desc,
                 'frame_prefix': PythonExpression(["'", frame_prefix, "/'"])
             }],
+            remappings=[
+                ('tf', '/tf'),
+                ('tf_static', '/tf_static'),
+            ],
         ),
     ])
