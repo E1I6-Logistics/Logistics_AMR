@@ -38,11 +38,11 @@ amcl:
     z_short: 0.05
     scan_topic: scan
     map_topic: map
-    set_initial_pose: false
-    always_reset_initial_pose: false
+    set_initial_pose: true
+    always_reset_initial_pose: true
     first_map_only: false
     initial_pose:
-      x: 0.0
+      x: 2.5
       y: 0.0
       z: 0.0
       yaw: 0.0
@@ -53,7 +53,7 @@ bt_navigator:
     robot_base_frame: tb3_1/base_link
     transform_tolerance: 0.5
     filter_duration: 0.3
-    default_nav_to_pose_bt_xml: "/home/heeyeon/turtlebot3_E1i6/src/turtlebot3/turtlebot3_navigation2/behavior_trees/navigate_on_route_graph_w_recovery.xml"
+    default_nav_to_pose_bt_xml: "/opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml"
     always_reload_bt_xml: false
     goal_blackboard_id: goal
     goals_blackboard_id: goals
@@ -95,7 +95,7 @@ docking_server:
       type: 'nova_carter_dock'
       frame: map
       pose: [30.0, 30.0, 0.0]
-    enable_stamped_cmd_vel: true
+    enable_stamped_cmd_vel: false
 
 controller_server:
   ros__parameters:
@@ -157,7 +157,7 @@ controller_server:
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
-    enable_stamped_cmd_vel: true
+    enable_stamped_cmd_vel: false
 
 local_costmap:
   local_costmap:
@@ -313,7 +313,7 @@ behavior_server:
     max_rotational_vel: 1.0
     min_rotational_vel: 0.4
     rotational_acc_lim: 3.2
-    enable_stamped_cmd_vel: true
+    enable_stamped_cmd_vel: false
 
 waypoint_follower:
   ros__parameters:
@@ -336,7 +336,7 @@ collision_monitor:
     source_timeout: 5.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    enable_stamped_cmd_vel: true
+    enable_stamped_cmd_vel: false
     use_realtime_priority: false
     polygons: ["PolygonStop", "PolygonSlow", "FootprintApproach"]
     PolygonStop:
@@ -410,7 +410,7 @@ collision_monitor:
         theta_max: 1.0
     observation_sources: ["scan"]
     scan:
-      source_timeout: 0.2
+      source_timeout: 0.6
       type: "scan"
       topic: "scan"
       enabled: true
@@ -429,9 +429,9 @@ velocity_smoother:
     odom_topic: "odom"
     odom_duration: 0.1
     use_realtime_priority: false
-    enable_stamped_cmd_vel: true
-    cmd_vel_in_topic: "cmd_vel_smoothed"
-    cmd_vel_out_topic: "cmd_vel"
+    enable_stamped_cmd_vel: false
+    cmd_vel_in_topic: "cmd_vel_nav"
+    cmd_vel_out_topic: "cmd_vel_smoothed"
 
 smoother_server:
   ros__parameters:
