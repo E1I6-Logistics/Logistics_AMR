@@ -8,6 +8,8 @@
   </description>
   <maintainer email="pyo@robotis.com">Pyo</maintainer>
   <license>Apache 2.0</license>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
   <url type="website">http://turtlebot3.robotis.com</url>
   <url type="repository">https://github.com/ROBOTIS-GIT/turtlebot3_simulations</url>
   <url type="bugtracker">https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues</url>

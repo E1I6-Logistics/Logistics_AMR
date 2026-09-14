@@ -15,7 +15,11 @@
   <author email="pyo@robotis.com">Pyo</author>
   <author email="willson@robotis.com">Will Son</author>
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>turtlebot3_gazebo</exec_depend>
+  <exec_depend>topic_tools</exec_depend>
   <export>
     <build_type>ament_cmake</build_type>
   </export>

@@ -20,7 +20,7 @@ def generate_launch_description():
     world = os.path.join(
         pkg_turtlebot3_gazebo,
         'worlds',
-        'warehouse.sdf'
+        'amr_workcell.sdf'
     )
 
     gzserver_cmd = IncludeLaunchDescription(
