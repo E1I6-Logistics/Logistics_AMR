@@ -1,0 +1,13 @@
+.vscode/
+
+# Python 관련 캐시 및 컴파일 파일
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# 운영체제 생성 임시 파일
+.DS_Store
+Thumbs.db
