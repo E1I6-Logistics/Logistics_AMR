@@ -1,5 +1,7 @@
 import math
 import numpy as np
+from scipy.spatial import cKDTree
+
 import rclpy as rp
 from rclpy.node import Node
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -8,14 +10,75 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import LaserScan
-from rcl_interfaces.msg import SetParametersResult
 
-import open3d as o3d
 from turtlebot3_my_msg.action import PrecisionDock
 
 
 def normalize_angle(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
+
+
+def icp_2d(source_pts: np.ndarray, target_pts: np.ndarray, initial_transform=None, max_iterations=40, tolerance=1e-4):
+    """
+    2D ICP (Iterative Closest Point) 구현:
+    - source_pts: (N, 2) 현재 라이다 스캔 포인트
+    - target_pts: (M, 2) V-Funnel 타겟 모델 포인트
+    반환: 3x3 변환 행렬 T, 피트니스 점수, 매칭된 점 개수
+    """
+    if initial_transform is None:
+        T = np.identity(3)
+    else:
+        T = np.copy(initial_transform)
+
+    tree = cKDTree(target_pts)
+    src_homo = np.hstack((source_pts, np.ones((source_pts.shape[0], 1))))
+
+    prev_err = float('inf')
+    fitness = 0.0
+    matched_count = 0
+
+    for _ in range(max_iterations):
+        transformed = (T @ src_homo.T).T[:, :2]
+        distances, indices = tree.query(transformed)
+
+        valid = distances < 0.20
+        matched_count = np.sum(valid)
+        if matched_count < 10:
+            break
+
+        current_src = transformed[valid]
+        current_tgt = target_pts[indices[valid]]
+
+        mean_src = np.mean(current_src, axis=0)
+        mean_tgt = np.mean(current_tgt, axis=0)
+
+        src_centered = current_src - mean_src
+        tgt_centered = current_tgt - mean_tgt
+
+        H = src_centered.T @ tgt_centered
+        U, _, Vt = np.linalg.svd(H)
+        R_delta = Vt.T @ U.T
+
+        if np.linalg.det(R_delta) < 0:
+            Vt[1, :] *= -1
+            R_delta = Vt.T @ U.T
+
+        t_delta = mean_tgt - (R_delta @ mean_src)
+
+        delta_T = np.identity(3)
+        delta_T[:2, :2] = R_delta
+        delta_T[:2, 2] = t_delta
+
+        T = delta_T @ T
+
+        mean_err = np.mean(distances[valid])
+        fitness = float(np.sum(distances < 0.05) / len(source_pts))
+
+        if abs(prev_err - mean_err) < tolerance:
+            break
+        prev_err = mean_err
+
+    return T, fitness, matched_count
 
 
 class PID:
@@ -78,45 +141,44 @@ class PrecisionDockingServer(Node):
         self.declare_parameter('charger_width', 0.20)
         self.declare_parameter('wing_length', 0.40)
         self.declare_parameter('wing_angle_deg', 45.0)
-        self.declare_parameter('robot_rear_length', 0.09) 
+        self.declare_parameter('robot_rear_length', 0.09)
 
-        self.latest_source_pcd = None
+        self.latest_source_pts = None
 
         self.linear_pid = PID(p=0.15, i=0.0, d=0.05, out_min=0.0, out_max=0.03)
-        self.angular_pid = PID(p=1, i=0.0, d=0.20, out_min=-0.20, out_max=0.20)
+        self.angular_pid = PID(p=1.0, i=0.0, d=0.20, out_min=-0.20, out_max=0.20)
 
         self.dist_tolerance = 0.05
         self.angle_tolerance = 0.05
 
-        self.get_logger().info('후진 기구학 부호 완벽 교정 정밀 도킹 서버 준비 완료.')
+        self.get_logger().info('Open3D-Free 2D ICP 정밀 도킹 서버 준비 완료.')
 
-    def generate_v_funnel_target(self, charger_w: float, wing_len: float, wing_deg: float, gap: float) -> o3d.geometry.PointCloud:
+    def generate_v_funnel_target(self, charger_w: float, wing_len: float, wing_deg: float, gap: float) -> np.ndarray:
         points = []
         back_x = -gap
         half_w = charger_w / 2.0
 
         for y in np.arange(-half_w, half_w + 0.005, 0.01):
-            points.append([back_x, y, 0.0])
+            points.append([back_x, y])
 
         rad = math.radians(wing_deg)
         for l in np.arange(0.0, wing_len + 0.005, 0.01):
             px = back_x + l * math.cos(rad)
-            points.append([px, half_w + l * math.sin(rad), 0.0])
-            points.append([px, -(half_w + l * math.sin(rad)), 0.0])
+            points.append([px, half_w + l * math.sin(rad)])
+            points.append([px, -(half_w + l * math.sin(rad))])
 
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(np.array(points))
-        return pcd
+        return np.array(points, dtype=np.float64)
 
-    def auto_estimate_v_funnel_params(self, source_pcd: o3d.geometry.PointCloud):
-        pts = np.asarray(source_pcd.points)
-        if len(pts) < 30: return None
+    def auto_estimate_v_funnel_params(self, pts: np.ndarray):
+        if len(pts) < 30:
+            return None
 
         min_x = np.min(pts[:, 0])
         station_mask = pts[:, 0] < (min_x + 0.45)
         valid_pts = pts[station_mask]
 
-        if len(valid_pts) < 20: return None
+        if len(valid_pts) < 20:
+            return None
 
         deepest_pts = valid_pts[valid_pts[:, 0] < (min_x + 0.08)]
         est_charger_w = float(np.ptp(deepest_pts[:, 1])) if len(deepest_pts) > 0 else 0.05
@@ -126,7 +188,8 @@ class PrecisionDockingServer(Node):
         left_wing_pts = valid_pts[valid_pts[:, 1] > half_w]
         right_wing_pts = valid_pts[valid_pts[:, 1] < -half_w]
 
-        if len(left_wing_pts) < 5 or len(right_wing_pts) < 5: return None
+        if len(left_wing_pts) < 5 or len(right_wing_pts) < 5:
+            return None
 
         dx_span = float(np.max(valid_pts[:, 0]) - min_x)
         est_wing_len = max(0.20, min(dx_span / math.cos(math.radians(45.0)), 0.40))
@@ -158,12 +221,9 @@ class PrecisionDockingServer(Node):
         roi_ys = ys[rear_roi]
 
         if len(roi_xs) >= 15:
-            source_points = np.column_stack((roi_xs, roi_ys, np.zeros_like(roi_xs)))
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(source_points)
-            self.latest_source_pcd = pcd
+            self.latest_source_pts = np.column_stack((roi_xs, roi_ys)).astype(np.float64)
         else:
-            self.latest_source_pcd = None
+            self.latest_source_pts = None
 
     def goal_callback(self, goal_request):
         self.get_logger().info('★ 도킹 액션 요청 수락')
@@ -185,17 +245,17 @@ class PrecisionDockingServer(Node):
         self.linear_pid.reset()
 
         wait_count = 0
-        while self.latest_source_pcd is None and rp.ok() and wait_count < 30:
+        while self.latest_source_pts is None and rp.ok() and wait_count < 30:
             self.create_rate(10.0).sleep()
             wait_count += 1
 
-        if self.latest_source_pcd is None:
+        if self.latest_source_pts is None:
             goal_handle.abort()
             return PrecisionDock.Result(success=False, message="No ROI points")
 
         req_pos = goal_handle.request.target_pose.pose.position
         if req_pos.y <= 0.0 or req_pos.z <= 0.0:
-            estimated = self.auto_estimate_v_funnel_params(self.latest_source_pcd)
+            estimated = self.auto_estimate_v_funnel_params(self.latest_source_pts)
             if estimated is not None:
                 w, l, ang = estimated
             else:
@@ -209,14 +269,13 @@ class PrecisionDockingServer(Node):
         safe_gap = robot_rear + 0.005
         gap = req_pos.x if req_pos.x > 0.0 else safe_gap
 
-        active_target_pcd = self.generate_v_funnel_target(w, l, ang, gap)
+        active_target_pts = self.generate_v_funnel_target(w, l, ang, gap)
 
         feedback_msg = PrecisionDock.Feedback()
         rate = self.create_rate(20.0)
         last_time = self.get_clock().now()
 
-        current_transform = np.identity(4)
-        is_first_frame = True
+        current_transform = np.identity(3)
         dist_err = 999.0
 
         while rp.ok():
@@ -225,13 +284,13 @@ class PrecisionDockingServer(Node):
                 self.publish_stop()
                 return PrecisionDock.Result(success=False, message="Canceled")
 
-            if self.latest_source_pcd is None:
+            if self.latest_source_pts is None:
                 self.publish_stop()
                 if dist_err < 0.20:
                     self.get_logger().info('🛑 센서 사각지대 돌입 완료 (완전 밀착) -> 안전 안착 완료')
                     goal_handle.succeed()
                     return PrecisionDock.Result(success=True, message="Docked (Blind Spot)")
-                
+
                 self.get_logger().warn_throttle(self.get_clock(), 1000, '도킹 타겟 유실! 대기 중...')
                 rate.sleep()
                 continue
@@ -240,39 +299,31 @@ class PrecisionDockingServer(Node):
             dt = (current_time - last_time).nanoseconds / 1e9
             last_time = current_time
 
-            pts = np.asarray(self.latest_source_pcd.points)
+            pts = self.latest_source_pts
             if len(pts) > 0:
                 lidar_to_wall_dist = abs(np.min(pts[:, 0]))
                 rear_to_wall_dist = lidar_to_wall_dist - robot_rear
-                
+
                 if rear_to_wall_dist <= 0.005:
                     self.publish_stop()
                     goal_handle.succeed()
                     self.get_logger().info('🛑 엉덩이 완전 밀착! -> 안착 완료')
                     return PrecisionDock.Result(success=True, message="Safety stopped")
 
-            if is_first_frame:
-                search_radius = 1.5
-            else:
-                search_radius = 0.15
-
-            reg_p2p = o3d.pipelines.registration.registration_icp(
-                self.latest_source_pcd, active_target_pcd,
-                search_radius, current_transform,
-                o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-                o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=40)
+            current_transform, fitness, match_cnt = icp_2d(
+                self.latest_source_pts,
+                active_target_pts,
+                initial_transform=current_transform,
+                max_iterations=30
             )
 
-            if len(reg_p2p.correspondence_set) < 15:
+            if match_cnt < 15:
                 self.publish_stop()
                 rate.sleep()
                 continue
 
-            current_transform = reg_p2p.transformation
-            is_first_frame = False
-
             T = current_transform
-            t_x, t_y = T[0, 3], T[1, 3]
+            t_x, t_y = T[0, 2], T[1, 2]
             t_yaw = normalize_angle(math.atan2(T[1, 0], T[0, 0]))
             dist_err = math.hypot(t_x, t_y)
 
@@ -280,43 +331,33 @@ class PrecisionDockingServer(Node):
             feedback_msg.angle_remaining = float(t_yaw)
             goal_handle.publish_feedback(feedback_msg)
 
-            if dist_err < self.dist_tolerance and reg_p2p.fitness > 0.5:
+            if dist_err < self.dist_tolerance and fitness > 0.4:
                 if abs(t_yaw) < self.angle_tolerance or dist_err < 0.10:
                     self.publish_stop()
                     goal_handle.succeed()
                     self.get_logger().info('★ V-Funnel 정밀 안착 완료!')
                     return PrecisionDock.Result(success=True, message="Successfully docked")
 
-            # =========================================================================
-            # [수정] 조향 제어 부호 완벽 교정 (반대로 움직이던 원인 100% 제거)
-            # =========================================================================
             lookahead_dist = 0.40
-            
-            # 1. 좌우 편차 교정: 타겟이 왼쪽(t_y > 0)이면 로봇 후미를 왼쪽으로 보내기 위해 차체는 반시계(w > 0) 회전
-            # 즉, 부호는 그대로 + 를 유지합니다.
             raw_correction = math.atan2(t_y, lookahead_dist)
             clamped_correction = float(np.clip(raw_correction, -math.radians(20.0), math.radians(20.0)))
-            
-            # 2. 회전 편차 교정: 차체가 반시계(t_yaw > 0)면 차체를 시계방향(w < 0)으로 돌려야 맞춰짐.
-            # 즉, t_yaw 에는 - 부호를 붙여야 합니다.
             total_heading_err = normalize_angle(-t_yaw + clamped_correction)
-            # =========================================================================
 
             max_v = 0.035
-            max_w = 1
+            max_w = 1.0
             min_v = 0.010
 
             if dist_err < 0.35:
                 max_v = 0.010
-                max_w = 1
-            
+                max_w = 1.0
+
             if dist_err < 0.6:
                 max_v = 0.012
-                max_w = 0.00 
+                max_w = 0.20
 
             heading_damping = max(0.0, math.cos(total_heading_err))
             speed_mag = self.linear_pid.update(dist_err, dt)
-            
+
             v_cmd = -float(np.clip(speed_mag * heading_damping, min_v, max_v))
             w_raw = self.angular_pid.update(total_heading_err, dt)
             w_cmd = float(np.clip(w_raw, -max_w, max_w))
@@ -335,7 +376,7 @@ class PrecisionDockingServer(Node):
             twist_msg.twist.linear.x = v_cmd
             twist_msg.twist.angular.z = w_cmd
             self.cmd_vel_pub.publish(twist_msg)
-            
+
             rate.sleep()
 
 
@@ -350,7 +391,9 @@ def main(args=None):
         pass
     finally:
         server_node.destroy_node()
-        if rp.ok(): rp.shutdown()
+        if rp.ok():
+            rp.shutdown()
+
 
 if __name__ == '__main__':
     main()
