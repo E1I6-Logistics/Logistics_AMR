@@ -510,17 +510,10 @@ def _launch_robots(
             }],
 
             remappings=[
-
-                (
-                    '/tf',
-                    'tf',
-                ),
-
-                (
-                    '/tf_static',
-                    'tf_static',
-                ),
+                ('/tf', 'tf'),
+                ('/tf_static', 'tf_static'),
             ],
+
         )
 
         # ----------------------------------------------------
