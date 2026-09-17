@@ -4,7 +4,7 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('turtlebot3_ekf')
+    pkg_share = get_package_share_directory('logitle_ekf')
     ekf_config_path = os.path.join(pkg_share, 'config', 'ekf.yaml')
 
     return LaunchDescription([
