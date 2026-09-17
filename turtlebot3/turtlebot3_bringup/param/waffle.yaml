@@ -31,7 +31,7 @@
     ros__parameters:
 
       odometry:
-        publish_tf: true
+        publish_tf: false
         use_imu: true
         frame_id: "odom"
         child_frame_id: "base_footprint"
