@@ -130,11 +130,12 @@ def generate_launch_description():
             parameters=[
                 tb3_param_dir,
                 {'namespace': namespace},
-                {'odometry.publish_tf': False}
+                {'odometry.publish_tf': False},
+                {'odometry.use_imu': False}  # <- 기존 노드의 IMU 사용 비활성화
             ],
             arguments=['-i', usb_port],
             remappings=[
-                ('/odom', '/wheel/odom')  # 앞에 슬래시(/)를 붙여 절대 경로로 지정
+                ('/odom', '/wheel/odom')
             ],
             output='screen'),
     ])
