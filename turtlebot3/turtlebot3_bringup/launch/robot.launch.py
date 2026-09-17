@@ -112,6 +112,17 @@ def generate_launch_description():
                               'frame_id': 'base_scan',
                               'namespace': namespace}.items(),
         ),
+        # turtlebot3_ekf 패키지의 ekf.launch.py를 함께 실행
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(
+                    get_package_share_directory('turtlebot3_ekf'),
+                    'launch',
+                    'ekf.launch.py'
+                )
+            ]),
+            launch_arguments={'use_sim_time': use_sim_time}.items(),
+        ),
 
         Node(
             package='turtlebot3_node',
