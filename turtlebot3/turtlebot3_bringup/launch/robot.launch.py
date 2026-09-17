@@ -116,7 +116,7 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(
-                    get_package_share_directory('logitle_ekf'),
+                    get_package_share_directory('logitle_ekf'),  # logitle_ekf로 변경
                     'launch',
                     'ekf.launch.py'
                 )
