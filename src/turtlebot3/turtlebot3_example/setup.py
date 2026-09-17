@@ -62,7 +62,11 @@ setup(
 
             'turtlebot3_relative_move = '
             'turtlebot3_example.turtlebot3_relative_move.'
-            'turtlebot3_relative_move:main'
+            'turtlebot3_relative_move:main',
+
+            'turtlebot3_odom_drift_experiment = '
+            'turtlebot3_example.turtlebot3_odom_drift.'
+            'odom_drift_experiment:main'
         ],
     },
 )
