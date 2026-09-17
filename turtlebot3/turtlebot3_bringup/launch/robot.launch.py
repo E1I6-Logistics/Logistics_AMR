@@ -118,7 +118,12 @@ def generate_launch_description():
             executable='turtlebot3_ros',
             parameters=[
                 tb3_param_dir,
-                {'namespace': namespace}],
+                {'namespace': namespace},
+                {'odometry.publish_tf': False}
+            ],
             arguments=['-i', usb_port],
+            remappings=[
+                ('/odom', '/wheel/odom')  # 앞에 슬래시(/)를 붙여 절대 경로로 지정
+            ],
             output='screen'),
     ])
