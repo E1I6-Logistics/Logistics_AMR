@@ -163,6 +163,12 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
+    # keepout_filter
+      filters: ["keepout_filter"]
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"  
+        enabled: True
+        filter_info_topic: "/costmap_filter_info"
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: odom
@@ -214,6 +220,12 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
+    # keepout_filter
+      filters: ["keepout_filter"]
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: True
+        filter_info_topic: "/costmap_filter_info"
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
