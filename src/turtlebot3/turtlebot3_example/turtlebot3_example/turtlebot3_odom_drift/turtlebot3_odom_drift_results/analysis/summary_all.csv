@@ -1,0 +1,7 @@
+condition,trial,experiment,odom_topic,distance_m,long_distance_m,short_distance_m,linear_speed_mps,angular_speed_radps,turn_direction,position_error_m,yaw_error_deg,yaw_error_abs_deg,estimated_travel_distance_m,drift_rate,drift_percent,sample_count,source_file
+baseline,1,rectangle,/odom,1.0,0.8,0.4,0.1,0.2,ccw,0.116307,-13.732439,13.732439,2.4,0.048461,4.846144,1279,20260917_145436_baseline_trial1_rectangle_summary.csv
+baseline,2,rectangle,/odom,1.0,0.8,0.4,0.1,0.2,ccw,0.122394,-13.921073,13.921073,2.4,0.050997,5.099742,1277,20260917_144541_baseline_trial2_rectangle_summary.csv
+baseline,3,rectangle,/odom,1.0,0.8,0.4,0.1,0.2,ccw,0.127118,-15.045843,15.045843,2.4,0.052966,5.296594,1275,20260917_145136_baseline_trial3_rectangle_summary.csv
+ekf,1,rectangle,/odom,1.0,0.8,0.4,0.1,0.2,ccw,0.052316,-8.93129,8.93129,2.4,0.021798,2.179824,1281,20260917_150027_ekf_trial1_rectangle_summary.csv
+ekf,2,rectangle,/odom,1.0,0.8,0.4,0.1,0.2,ccw,0.061129,-7.505013,7.505013,2.4,0.02547,2.547028,1276,20260917_150524_ekf_trial2_rectangle_summary.csv
+ekf,3,rectangle,/odom,1.0,0.8,0.4,0.1,0.2,ccw,0.067528,-10.16849,10.16849,2.4,0.028137,2.813665,1279,20260917_151232_ekf_trial3_rectangle_summary.csv

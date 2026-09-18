@@ -1,0 +1,2 @@
+condition,trial,experiment,odom_topic,distance_m,long_distance_m,short_distance_m,linear_speed_mps,angular_speed_radps,turn_direction,position_error_m,yaw_error_deg,yaw_error_abs_deg,estimated_travel_distance_m,drift_rate,drift_percent,sample_count
+ekf,2,rectangle,/odom,1.000000,0.800000,0.400000,0.100000,0.200000,ccw,0.061129,-7.505013,7.505013,2.400000,0.025470,2.547028,1276
