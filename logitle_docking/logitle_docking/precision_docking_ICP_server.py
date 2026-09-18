@@ -119,14 +119,14 @@ class PrecisionDockingServer(Node):
         # ---------------------------------------------------------
         # [수정 1] 하드코딩되었던 도킹/안전/ROI 파라미터 선언
         # ---------------------------------------------------------
-        self.declare_parameter('charger_width', 0.20)
+        self.declare_parameter('charger_width', 0.30)
         self.declare_parameter('wing_length', 0.35)
         self.declare_parameter('wing_angle_deg', 45.0)
-        self.declare_parameter('robot_rear_length', 0.09)
+        self.declare_parameter('robot_rear_length', 0.12)
 
         # 보안(안전) 및 ROI 관련 파라미터 추가
         self.declare_parameter('roi_x_min', -0.5)
-        self.declare_parameter('roi_x_max', -0.9)
+        self.declare_parameter('roi_x_max', -0.065)
         self.declare_parameter('roi_y_limit', 0.30)
         self.declare_parameter('safety_stop_dist', 0.005)     # 완전 밀착 안전 정지 거리
         self.declare_parameter('blind_spot_dist', 0.20)       # 사각지대 진입 시 성공 판정 거리
@@ -143,8 +143,8 @@ class PrecisionDockingServer(Node):
         self.linear_pid = PID(p=0.15, i=0.0, d=0.05, out_min=0.0, out_max=0.03)
         self.angular_pid = PID(p=0.5, i=0.0, d=0.20, out_min=-0.35, out_max=0.35)
 
-        self.dist_tolerance = 0.06
-        self.angle_tolerance = 0.01
+        self.dist_tolerance = 0.001
+        self.angle_tolerance = 0.001
 
         self.get_logger().info('중앙 정렬 강화 2D ICP 정밀 도킹 서버(파라미터 동적 적용) 준비 완료.')
 
