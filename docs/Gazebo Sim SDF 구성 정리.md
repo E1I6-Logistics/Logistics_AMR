@@ -76,7 +76,7 @@ multi_robot_workcell.launch.py
 ├─ worlds/amr_workcell.sdf              작업장 월드
 ├─ models/turtlebot3_burger/model.sdf   Gazebo 로봇 모델
 ├─ urdf/turtlebot3_burger.urdf          ROS TF 구조
-└─ params/multi_robot.yaml               로봇 이름과 초기 위치
+└─ params/multi_robot.yaml               로봇 이름과 world/map 초기 위치
 ```
 
 기본 실행:

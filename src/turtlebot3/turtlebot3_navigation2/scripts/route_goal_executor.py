@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 
+from action_msgs.msg import GoalStatus
 from nav2_msgs.action import ComputeRoute, FollowPath
 
 
@@ -15,7 +16,9 @@ class RouteGoalExecutor(Node):
         # ==========================================
         # Parameters
         # ==========================================
-        self.declare_parameter('start_node', 6)
+        # 초기 pose (0, 0)에 가장 가까운 graph node는 10번이다.
+        # -1을 지정하면 Route Server가 TF를 기준으로 시작점을 선택한다.
+        self.declare_parameter('start_node', 10)
         self.declare_parameter('goal_node', 13)
 
         self.start_node = (
@@ -36,16 +39,17 @@ class RouteGoalExecutor(Node):
         self.compute_route_client = ActionClient(
             self,
             ComputeRoute,
-            '/compute_route'
+            'compute_route'
         )
 
         self.follow_path_client = ActionClient(
             self,
             FollowPath,
-            '/follow_path'
+            'follow_path'
         )
 
         self.started = False
+        self.done = False
 
         self.timer = self.create_timer(
             1.0,
@@ -60,14 +64,15 @@ class RouteGoalExecutor(Node):
         if self.started:
             return
 
+        if not self.compute_route_client.server_is_ready():
+            self.get_logger().info(
+                'Waiting for compute_route action server...',
+                throttle_duration_sec=5.0,
+            )
+            return
+
         self.started = True
         self.timer.cancel()
-
-        self.get_logger().info(
-            f'Route request: '
-            f'{self.start_node} -> {self.goal_node}'
-        )
-
         self.send_compute_route()
 
     # ==========================================
@@ -75,32 +80,23 @@ class RouteGoalExecutor(Node):
     # ==========================================
     def send_compute_route(self):
 
-        self.get_logger().info(
-            'Waiting for /compute_route action server...'
-        )
-
-        if not self.compute_route_client.wait_for_server(
-            timeout_sec=10.0
-        ):
-            self.get_logger().error(
-                '/compute_route action server not available'
-            )
-            return
-
         goal_msg = ComputeRoute.Goal()
 
         # ------------------------------------------
         # Node ID 기반 Route 계산
         # ------------------------------------------
         goal_msg.use_poses = False
-
-        goal_msg.start_id = int(self.start_node)
         goal_msg.goal_id = int(self.goal_node)
 
-        self.get_logger().info(
-            f'Sending ComputeRoute: '
-            f'{self.start_node} -> {self.goal_node}'
-        )
+        if self.start_node >= 0:
+            goal_msg.use_start = True
+            goal_msg.start_id = int(self.start_node)
+            route_description = f'node {self.start_node} -> node {self.goal_node}'
+        else:
+            goal_msg.use_start = False
+            route_description = f'current pose -> node {self.goal_node}'
+
+        self.get_logger().info(f'Sending ComputeRoute: {route_description}')
 
         future = self.compute_route_client.send_goal_async(
             goal_msg
@@ -115,7 +111,11 @@ class RouteGoalExecutor(Node):
     # ==========================================
     def compute_route_goal_response(self, future):
 
-        goal_handle = future.result()
+        try:
+            goal_handle = future.result()
+        except Exception as exc:
+            self.get_logger().error(f'ComputeRoute request failed: {exc}')
+            return
 
         if goal_handle is None:
             self.get_logger().error(
@@ -144,7 +144,11 @@ class RouteGoalExecutor(Node):
     # ==========================================
     def compute_route_result(self, future):
 
-        wrapped_result = future.result()
+        try:
+            wrapped_result = future.result()
+        except Exception as exc:
+            self.get_logger().error(f'ComputeRoute result failed: {exc}')
+            return
 
         status = wrapped_result.status
         result = wrapped_result.result
@@ -199,6 +203,7 @@ class RouteGoalExecutor(Node):
                 'ComputeRoute failed: '
                 f'error_code={result.error_code}'
             )
+            self.done = True
             return
 
         if len(result.path.poses) == 0:
@@ -206,6 +211,7 @@ class RouteGoalExecutor(Node):
             self.get_logger().error(
                 'ComputeRoute returned empty path'
             )
+            self.done = True
             return
 
         self.get_logger().info(
@@ -225,16 +231,15 @@ class RouteGoalExecutor(Node):
     # ==========================================
     def send_follow_path(self, path):
 
-        self.get_logger().info(
-            'Waiting for /follow_path action server...'
-        )
+        self.get_logger().info('Waiting for follow_path action server...')
 
         if not self.follow_path_client.wait_for_server(
             timeout_sec=10.0
         ):
             self.get_logger().error(
-                '/follow_path action server not available'
+                'follow_path action server not available'
             )
+            self.done = True
             return
 
         goal_msg = FollowPath.Goal()
@@ -264,7 +269,11 @@ class RouteGoalExecutor(Node):
     # ==========================================
     def follow_path_goal_response(self, future):
 
-        goal_handle = future.result()
+        try:
+            goal_handle = future.result()
+        except Exception as exc:
+            self.get_logger().error(f'FollowPath request failed: {exc}')
+            return
 
         if goal_handle is None:
             self.get_logger().error(
@@ -300,7 +309,8 @@ class RouteGoalExecutor(Node):
 
             self.get_logger().info(
                 f'Distance to goal: '
-                f'{feedback.distance_to_goal:.2f} m'
+                f'{feedback.distance_to_goal:.2f} m',
+                throttle_duration_sec=1.0,
             )
 
     # ==========================================
@@ -308,7 +318,11 @@ class RouteGoalExecutor(Node):
     # ==========================================
     def follow_path_result(self, future):
 
-        wrapped_result = future.result()
+        try:
+            wrapped_result = future.result()
+        except Exception as exc:
+            self.get_logger().error(f'FollowPath result failed: {exc}')
+            return
 
         status = wrapped_result.status
         result = wrapped_result.result
@@ -325,7 +339,7 @@ class RouteGoalExecutor(Node):
                 f'{result.error_code}'
             )
 
-        if status == 4:
+        if status == GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info(
                 'Navigation succeeded!'
             )
@@ -333,6 +347,8 @@ class RouteGoalExecutor(Node):
             self.get_logger().warn(
                 'Navigation did not finish successfully.'
             )
+
+        self.done = True
 
 
 def main(args=None):
@@ -342,7 +358,8 @@ def main(args=None):
     node = RouteGoalExecutor()
 
     try:
-        rclpy.spin(node)
+        while rclpy.ok() and not node.done:
+            rclpy.spin_once(node)
 
     except KeyboardInterrupt:
         pass

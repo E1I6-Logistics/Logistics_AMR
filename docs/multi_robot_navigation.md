@@ -8,7 +8,7 @@ Gazebo에는 로봇 3대를 한 번만 띄우고, ROS 2에서는 로봇마다 na
 
 ```mermaid
 flowchart LR
-    CONFIG["multi_robot.yaml<br/>로봇 이름 · 스폰 위치 · 초기 자세"]
+    CONFIG["multi_robot.yaml<br/>이름 · world 스폰 자세 · map 초기 자세"]
 
     subgraph SIM["Gazebo Sim · amr_workcell.sdf"]
         GZ1["robot1"]
@@ -85,7 +85,9 @@ _launch_setup(context)
 
 | 함수 | 호출되는 시점 | 역할 |
 |---|---|---|
-| `_load_robots(config_path)` | `_launch_setup()` 실행 중 | `multi_robot.yaml`을 읽고 로봇 목록, 이름 중복, 좌표 필수값을 검사한다. |
+| `_load_robots(config_path)` | `_launch_setup()` 실행 중 | `multi_robot.yaml`을 읽고 로봇 목록, 이름 중복, `initial_pose_map` 필수값을 검사한다. |
+| `_read_pgm_size(image_path)` | 지도 범위 검사 중 | PGM 헤더에서 지도 이미지의 가로·세로 픽셀 수를 읽는다. |
+| `_validate_initial_poses_in_map(...)` | `_launch_setup()` 실행 중 | 각 `initial_pose_map`이 실제 지도 범위 안에 있는지 검사하고, 범위를 벗어나면 Nav2 시작 전에 오류를 낸다. |
 | `_set_parameter(...)` | `_write_robot_params()` 실행 중 | 중첩된 Nav2 YAML에서 특정 파라미터 하나를 변경하는 공통 도우미다. |
 | `_write_robot_params(source_path, robot)` | `_launch_setup()`에서 로봇마다 한 번 | 기본 `burger.yaml`을 복사해 `robotN/odom`, `robotN/base_link`, AMCL 초기 위치 등을 반영한 임시 파라미터 파일을 만든다. |
 | `_cleanup_temp_files(...)` | launch 종료 시 `OnShutdown`이 호출 | 실행 중 생성했던 로봇별 임시 Nav2 YAML 파일을 삭제한다. |
@@ -100,6 +102,8 @@ _launch_setup(context)
 generate_launch_description()
 └── [등록] _launch_setup(context)
     ├── _load_robots()
+    ├── _validate_initial_poses_in_map()
+    │   └── _read_pgm_size()
     ├── 로봇마다 _write_robot_params()
     │   └── 여러 번 _set_parameter()
     ├── 로봇마다 _make_checker(topics)
@@ -201,18 +205,54 @@ RViz 실행
 
 ### 1. 로봇 설정을 한 파일에서 관리
 
-로봇 이름과 시작 위치는 `multi_robot.yaml` 하나만 수정한다.
+로봇 이름과 두 좌표계의 시작 위치는 `multi_robot.yaml` 하나에서 관리한다.
+파일은 하나지만 좌표의 의미는 명확하게 분리한다.
 
 ```yaml
 robots:
   - name: robot1
-    x: 2.37
-    y: -1.30
-    z: 0.01
-    yaw: 3.141592653589793
+    spawn_pose_world:
+      x: 2.48
+      y: -1.27
+      z: 0.01
+      yaw: 0.0
+    initial_pose_map:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
 ```
 
-Gazebo spawn과 AMCL 초기 위치가 같은 파일을 사용하므로 좌표를 두 군데에 중복 입력하지 않는다.
+```text
+spawn_pose_world
+└── Gazebo world 기준 로봇 생성 위치
+
+initial_pose_map
+└── 저장된 지도에서 AMCL이 사용할 초기 위치
+```
+
+Gazebo 런처는 `spawn_pose_world`만 읽고 Nav2 런처는
+`initial_pose_map`만 읽는다. 이 둘은 물리적으로 같은 로봇 위치를 표현할 수
+있지만 좌표계가 다르므로 숫자가 같을 필요가 없다.
+
+현재 지도는 robot1이 Gazebo world `(2.48, -1.27)` 부근에서 SLAM을 시작해 그
+위치가 map `(0, 0)` 부근이 된 지도다. 따라서 현재 초기값은 다음 관계를
+사용한다.
+
+```text
+robot1 map ≈ (0.00, 0.00)
+robot2 map ≈ (0.00, 1.25)
+robot3 map ≈ (0.00, 2.51)
+```
+
+Nav2 런처는 지도 YAML의 `origin`, `resolution`과 PGM 크기로 지도 범위를
+계산한다. `initial_pose_map`이 범위를 벗어나면 AMCL과 RViz를 잘못된 상태로
+실행하지 않고 즉시 오류를 출력한다.
+
+지도 YAML의 `origin`은 로봇의 초기 위치가 아니다. PGM 이미지의 왼쪽 아래
+모서리가 `map` 좌표에서 어디인지 나타내는 이미지 메타데이터다. 로봇 위치를
+고치기 위해 `origin`을 변경하면 지도, Route Graph와 모든 map 좌표가 함께
+이동하므로 로봇별 초기 위치 문제의 해결책으로 사용하지 않는다.
 
 ### 2. ROS 토픽은 namespace로 분리
 
@@ -344,22 +384,78 @@ ros2 launch turtlebot3_navigation2 multi_robot_navigation2.launch.py \
 
 1. RViz의 Fixed Frame이 `map`인지 확인한다.
 2. 지도와 robot1~3 RobotModel/TF가 표시되는지 확인한다.
-3. AMCL 초기 위치는 `multi_robot.yaml`의 spawn 좌표로 자동 설정된다.
+3. AMCL 초기 위치는 `multi_robot.yaml`의 `initial_pose_map`으로 자동 설정된다.
+4. LaserScan이 지도 벽면과 겹치는지 확인한다. 약간 어긋나면 map 기준 초기
+   자세를 보정해야 하며 Gazebo `spawn_pose_world`를 변경할 필요는 없다.
+
+RViz를 실행하면 다음 LaserScan display가 자동으로 활성화된다.
+
+```text
+Robot1 Scan: /robot1/scan  빨간색
+Robot2 Scan: /robot2/scan  초록색
+Robot3 Scan: /robot3/scan  파란색
+```
+
+상단 도구 모음의 `Publish Point`는 클릭한 map 좌표를 `/clicked_point`에
+`geometry_msgs/PointStamped`로 발행한다. 좌표 확인에는 적합하지만 방향 정보가
+없으므로 Nav2 주행 목표로 직접 사용하지는 않는다.
+
+```bash
+ros2 topic echo /clicked_point
+```
 
 현재 RViz 설정은 **세 로봇 표시와 TF 검증**까지 자동 구성한다. 표준 RViz의
 `Nav2 Goal` 도구 하나는 로봇 namespace를 자동 선택하지 못하므로 아직 넣지
 않았다. 다음 단계에서 로봇 선택기/goal dispatcher를 추가하거나, 우선
 `/robotN/navigate_to_pose` 액션을 직접 호출해 로봇별 주행을 검증한다.
 
+## Goal Dispatcher 설계 검토
+
+한 RViz에서 사용자가 로봇을 선택하고 목표 자세를 지정하려면 경량 Goal
+Dispatcher를 두는 것이 현재 단계에 적합하다.
+
+```text
+RViz 2D Goal Pose
+        │ PoseStamped: x, y, yaw, frame=map
+        ▼
+Multi-Robot Goal Dispatcher
+        │ 선택된 robot 이름 확인
+        ├── robot1 → /robot1/navigate_to_pose
+        ├── robot2 → /robot2/navigate_to_pose
+        └── robot3 → /robot3/navigate_to_pose
+```
+
+`Publish Point`는 `x, y`만 제공하므로 좌표 확인용으로 유지한다. Dispatcher의
+주행 목표 입력에는 화살표로 방향까지 지정하는 `2D Goal Pose`와
+`geometry_msgs/PoseStamped`를 사용한다.
+
+구현 시 다음 안전 조건을 둔다.
+
+- 로봇이 명시적으로 선택되지 않으면 Goal을 거부한다.
+- `robots_file`에 없는 로봇 이름은 거부한다.
+- Goal의 `frame_id`는 `map`인지 검사한다.
+- 해당 로봇의 NavigateToPose action server가 준비됐는지 확인한다.
+- 로봇별 Goal 진행·성공·실패·취소 상태를 구분해서 발행한다.
+- 한 로봇의 Goal을 다른 로봇에 broadcast하지 않는다.
+
+다른 선택지는 로봇별 Action을 터미널에서 직접 호출하거나 RViz를 로봇마다
+따로 실행하는 것이다. 직접 Action 호출은 검증에는 가장 단순하지만 반복
+운영이 불편하고, RViz 3개는 자원 사용량과 화면 관리 비용이 크다. 따라서
+현재 수동 멀티로봇 테스트에는 Dispatcher가 적합하다.
+
+단, 이 Dispatcher는 사람이 RViz에서 테스트하기 위한 입력 어댑터다. 최종
+FMS에서는 Fleet Manager가 각 `/robotN/navigate_to_pose` 또는 Route action을
+직접 선택해 호출하며, 교통·작업 할당 로직을 RViz Dispatcher 안에 넣지 않는다.
+
 ## 주요 파일
 
 | 파일 | 역할 |
 |---|---|
-| `turtlebot3_gazebo/params/multi_robot.yaml` | 로봇 목록과 초기 위치의 단일 관리 지점 |
+| `turtlebot3_gazebo/params/multi_robot.yaml` | 로봇 목록, `spawn_pose_world`, `initial_pose_map`의 단일 관리 지점 |
 | `turtlebot3_gazebo/launch/multi_robot_workcell.launch.py` | Gazebo, robot_state_publisher, ros_gz_bridge 실행 |
 | `turtlebot3_navigation2/launch/multi_robot_navigation2.launch.py` | Nav2 3개와 RViz 실행을 총괄 |
 | `turtlebot3_navigation2/param/burger.yaml` | Nav2 동작 파라미터 |
-| `turtlebot3_navigation2/map/my_map.yaml` | AMCL과 planner가 사용하는 공용 지도 |
+| `turtlebot3_navigation2/map/amr_workcell.yaml` | AMCL과 planner가 사용하는 공용 지도 |
 
 ## FMS / Zenoh 연결 위치
 

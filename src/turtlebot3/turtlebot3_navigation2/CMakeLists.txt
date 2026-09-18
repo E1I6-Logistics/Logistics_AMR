@@ -17,7 +17,7 @@ find_package(ament_cmake REQUIRED)
 # Install
 ################################################################################
 install(
-  DIRECTORY behavior_trees launch map param rviz
+  DIRECTORY behavior_trees graphs launch map param rviz
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -25,6 +25,7 @@ install(
   PROGRAMS
     scripts/multi_robot_tf_aggregator.py
     scripts/readiness_checker.py
+    scripts/route_goal_executor.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

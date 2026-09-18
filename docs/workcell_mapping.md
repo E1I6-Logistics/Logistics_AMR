@@ -21,6 +21,26 @@ TF Aggregator + SLAM Toolbox
 로봇 이름을 읽어 `robotN/odom`, `robotN/base_footprint`, `/robotN/scan`과 RViz
 설정을 자동으로 만든다.
 
+```yaml
+robots:
+  - name: robot1
+    spawn_pose_world:
+      x: 2.48
+      y: -1.27
+      z: 0.01
+      yaw: 0.0
+    initial_pose_map:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
+```
+
+매핑 실행에서 Gazebo는 `spawn_pose_world`만 사용한다. SLAM을 시작하면 이 로봇
+위치가 새 지도의 `(0, 0)` 부근이 되므로 `initial_pose_map`은 이후 저장된
+지도를 AMCL로 다시 불러올 때 사용할 기준값이다. 두 값은 한 파일에서 함께
+관리하지만 서로 다른 좌표계의 값이다.
+
 ## 빌드
 
 ```bash
@@ -99,4 +119,3 @@ amr_workcell_slam_v1.yaml
 
 저장 후에는 새 YAML을 멀티로봇 Navigation 런치의 `map` 인자로 전달해 AMCL
 초기 위치와 실제 스폰 위치가 일치하는지 검증한다.
-

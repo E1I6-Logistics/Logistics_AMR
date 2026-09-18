@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 import os
 import tempfile
 
@@ -40,13 +41,90 @@ def _load_robots(config_path):
 
     required_fields = {'x', 'y', 'z', 'yaw'}
     for robot in robots:
-        missing = required_fields - robot.keys()
-        if missing:
+        initial_pose = robot.get('initial_pose_map')
+        if not isinstance(initial_pose, dict):
             raise RuntimeError(
-                f"Robot {robot['name']} is missing fields: {sorted(missing)}"
+                f"Robot {robot['name']} must define initial_pose_map as a mapping"
             )
 
+        missing = required_fields - initial_pose.keys()
+        if missing:
+            raise RuntimeError(
+                f"Robot {robot['name']} is missing initial_pose_map fields: "
+                f"{sorted(missing)}"
+            )
+
+        for field in required_fields:
+            try:
+                float(initial_pose[field])
+            except (TypeError, ValueError) as error:
+                raise RuntimeError(
+                    f"Robot {robot['name']} initial_pose_map.{field} must be numeric"
+                ) from error
+
     return robots
+
+
+def _read_pgm_size(image_path):
+    with open(image_path, 'rb') as image_file:
+        tokens = []
+        while len(tokens) < 4:
+            line = image_file.readline()
+            if not line:
+                break
+            line = line.split(b'#', 1)[0]
+            tokens.extend(line.split())
+
+    if len(tokens) < 4 or tokens[0] not in (b'P2', b'P5'):
+        raise RuntimeError(f'Unsupported or invalid PGM map image: {image_path}')
+
+    return int(tokens[1]), int(tokens[2])
+
+
+def _validate_initial_poses_in_map(robots, map_yaml_path):
+    with open(map_yaml_path, 'r', encoding='utf-8') as map_file:
+        map_config = yaml.safe_load(map_file) or {}
+
+    image_name = map_config.get('image')
+    resolution = map_config.get('resolution')
+    origin = map_config.get('origin')
+    if not image_name or resolution is None or not isinstance(origin, list) or len(origin) < 3:
+        raise RuntimeError(
+            f'Map YAML must define image, resolution, and [x, y, yaw] origin: '
+            f'{map_yaml_path}'
+        )
+
+    image_path = image_name
+    if not os.path.isabs(image_path):
+        image_path = os.path.join(os.path.dirname(map_yaml_path), image_path)
+
+    if os.path.splitext(image_path)[1].lower() != '.pgm':
+        raise RuntimeError(
+            'Initial pose bounds validation currently requires a PGM map image; '
+            f'got {image_path}'
+        )
+
+    width, height = _read_pgm_size(image_path)
+    resolution = float(resolution)
+    origin_x, origin_y, origin_yaw = map(float, origin[:3])
+    map_width = width * resolution
+    map_height = height * resolution
+    cos_yaw = math.cos(origin_yaw)
+    sin_yaw = math.sin(origin_yaw)
+
+    for robot in robots:
+        pose = robot['initial_pose_map']
+        delta_x = float(pose['x']) - origin_x
+        delta_y = float(pose['y']) - origin_y
+        image_x = cos_yaw * delta_x + sin_yaw * delta_y
+        image_y = -sin_yaw * delta_x + cos_yaw * delta_y
+
+        if not (0.0 <= image_x < map_width and 0.0 <= image_y < map_height):
+            raise RuntimeError(
+                f"Robot {robot['name']} initial_pose_map "
+                f"({pose['x']}, {pose['y']}) is outside map bounds "
+                f"for {map_yaml_path}"
+            )
 
 
 def _set_parameter(config, node_name, parameter_name, value, nested_name=None):
@@ -64,6 +142,7 @@ def _write_robot_params(source_path, robot):
     odom_frame = f'{robot_name}/odom'
     base_footprint_frame = f'{robot_name}/base_footprint'
     base_link_frame = f'{robot_name}/base_link'
+    initial_pose = robot['initial_pose_map']
 
     _set_parameter(config, 'amcl', 'base_frame_id', base_footprint_frame)
     _set_parameter(config, 'amcl', 'odom_frame_id', odom_frame)
@@ -71,10 +150,10 @@ def _write_robot_params(source_path, robot):
     _set_parameter(config, 'amcl', 'always_reset_initial_pose', True)
     amcl_params = config['amcl']['ros__parameters']
     amcl_params['initial_pose'] = {
-        'x': float(robot['x']),
-        'y': float(robot['y']),
-        'z': float(robot['z']),
-        'yaw': float(robot['yaw']),
+        'x': float(initial_pose['x']),
+        'y': float(initial_pose['y']),
+        'z': float(initial_pose['z']),
+        'yaw': float(initial_pose['yaw']),
     }
 
     _set_parameter(config, 'bt_navigator', 'robot_base_frame', base_link_frame)
@@ -172,7 +251,9 @@ def _launch_setup(context):
 
     robots_path = context.perform_substitution(robots_file)
     params_path = context.perform_substitution(params_file)
+    map_path = context.perform_substitution(map_file)
     robots = _load_robots(robots_path)
+    _validate_initial_poses_in_map(robots, map_path)
     robot_names = [robot['name'] for robot in robots]
 
     temp_paths = [

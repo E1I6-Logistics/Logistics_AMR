@@ -60,8 +60,7 @@
                   path="{route_path}"
                   route="{route}"
                   use_poses="true"
-                  error_code_id="{compute_route_error_code}"
-                  error_msg="{compute_route_error_msg}"/>
+                  error_code_id="{compute_route_error_code}"/>
 
 
                 <!-- First mile -->
@@ -88,8 +87,7 @@
                     goal="{route_start_pose}"
                     path="{first_mile_path}"
                     planner_id="{selected_planner}"
-                    error_code_id="{compute_path_error_code}"
-                    error_msg="{compute_path_error_msg}"/>
+                    error_code_id="{compute_path_error_code}"/>
 
                   <ConcatenatePaths
                     input_path1="{first_mile_path}"
@@ -121,8 +119,7 @@
                     goal="{goal}"
                     path="{last_mile_path}"
                     planner_id="{selected_planner}"
-                    error_code_id="{compute_path_error_code}"
-                    error_msg="{compute_path_error_msg}"/>
+                    error_code_id="{compute_path_error_code}"/>
 
                   <ConcatenatePaths
                     input_path1="{route_path}"
@@ -137,8 +134,7 @@
                   unsmoothed_path="{route_path}"
                   smoothed_path="{path}"
                   smoother_id="route_smoother"
-                  error_code_id="{smoother_error_code}"
-                  error_msg="{smoother_error_msg}"/>
+                  error_code_id="{smoother_error_code}"/>
 
               </Sequence>
 
@@ -177,9 +173,7 @@
           <FollowPath
             path="{path}"
             controller_id="{selected_controller}"
-            error_code_id="{follow_path_error_code}"
-            error_msg="{follow_path_error_msg}"
-            tracking_feedback="{tracking_feedback}"/>
+            error_code_id="{follow_path_error_code}"/>
 
           <Sequence>
 
@@ -229,16 +223,12 @@
 
             </Sequence>
 
-            <Wait
-              wait_duration="5.0"
-              error_code_id="{wait_error_code}"
-              error_msg="{wait_error_msg}"/>
+            <Wait wait_duration="5.0"/>
 
             <BackUp
               backup_dist="0.30"
               backup_speed="0.15"
-              error_code_id="{backup_error_code}"
-              error_msg="{backup_error_msg}"/>
+              error_code_id="{backup_error_code}"/>
 
           </RoundRobin>
 

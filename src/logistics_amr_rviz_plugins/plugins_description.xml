@@ -1,0 +1,10 @@
+<library path="logistics_amr_rviz_plugins">
+  <class
+    name="logistics_amr_rviz_plugins/MultiRobotControl"
+    type="logistics_amr_rviz_plugins::MultiRobotControlPanel"
+    base_class_type="rviz_common::Panel">
+    <description>
+      Select a robot, inspect navigation state, and cancel its active goal.
+    </description>
+  </class>
+</library>

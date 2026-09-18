@@ -4,7 +4,9 @@ import math
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import AppendEnvironmentVariable
+from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
@@ -15,6 +17,7 @@ def generate_launch_description():
     ros_gz_sim = get_package_share_directory('ros_gz_sim')
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
+    use_gui = LaunchConfiguration('use_gui', default='true')
 
     # AMR 작업장 월드 경로 사용
     world = os.path.join(
@@ -34,7 +37,8 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(ros_gz_sim, 'launch', 'gz_sim.launch.py')
         ),
-        launch_arguments={'gz_args': '-g -v2 ', 'on_exit_shutdown': 'true'}.items()
+        launch_arguments={'gz_args': '-g -v2 ', 'on_exit_shutdown': 'true'}.items(),
+        condition=IfCondition(use_gui),
     )
 
     robot_state_publisher_cmd = IncludeLaunchDescription(
@@ -51,7 +55,6 @@ def generate_launch_description():
         launch_arguments={
             'x_pose': '2.50',
             'y_pose': '-1.27',
-            'Y_pose': f'{math.pi}',
             'yaw': f'{math.pi}'
         }.items()
     )
@@ -69,12 +72,26 @@ def generate_launch_description():
 
     ld = LaunchDescription()
 
+    ld.add_action(DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='true',
+        description='Use Gazebo simulation clock'
+    ))
+
+    ld.add_action(DeclareLaunchArgument(
+        'use_gui',
+        default_value='true',
+        description='Start the Gazebo GUI'
+    ))
+
+    # Gazebo 프로세스가 시작되기 전에 리소스 경로를 설정한다.
+    ld.add_action(set_env_vars_resources)
+    ld.add_action(set_env_vars_common_mesh)
+
     # Add the commands to the launch description
     ld.add_action(gzserver_cmd)
     ld.add_action(gzclient_cmd)
     ld.add_action(spawn_turtlebot_cmd)
     ld.add_action(robot_state_publisher_cmd)
-    ld.add_action(set_env_vars_resources)
-    ld.add_action(set_env_vars_common_mesh)
 
     return ld

@@ -77,17 +77,36 @@ def _load_robots(config_path):
 
     for robot in robots:
 
+        spawn_pose = robot.get(
+            'spawn_pose_world'
+        )
+
+        if not isinstance(spawn_pose, dict):
+            raise RuntimeError(
+                f"Robot {robot['name']} must define "
+                "spawn_pose_world as a mapping."
+            )
+
         missing = (
             required_pose_fields
-            - robot.keys()
+            - spawn_pose.keys()
         )
 
         if missing:
             raise RuntimeError(
                 f"Robot {robot['name']} "
-                f"is missing pose fields: "
+                f"is missing spawn_pose_world fields: "
                 f"{sorted(missing)}"
             )
+
+        for field in required_pose_fields:
+            try:
+                float(spawn_pose[field])
+            except (TypeError, ValueError) as error:
+                raise RuntimeError(
+                    f"Robot {robot['name']} "
+                    f"spawn_pose_world.{field} must be numeric."
+                ) from error
 
     return robots
 
@@ -459,6 +478,10 @@ def _launch_robots(
             robot['name']
         )
 
+        spawn_pose = (
+            robot['spawn_pose_world']
+        )
+
         scoped_sdf = (
             _make_scoped_sdf(
                 model_path,
@@ -541,16 +564,16 @@ def _launch_robots(
                 scoped_sdf,
 
                 '-x',
-                str(robot['x']),
+                str(spawn_pose['x']),
 
                 '-y',
-                str(robot['y']),
+                str(spawn_pose['y']),
 
                 '-z',
-                str(robot['z']),
+                str(spawn_pose['z']),
 
                 '-Y',
-                str(robot['yaw']),
+                str(spawn_pose['yaw']),
             ],
         )
 
