@@ -1,0 +1,43 @@
+{
+  plugins: {
+    ros2dds: {
+      deny: {
+        publishers: [
+          "^/robot[0-9]+/.*$",
+          "^/rosout$",
+          "^/parameter_events$"
+        ],
+
+        subscribers: [
+          "^/robot[0-9]+/.*$"
+        ],
+
+        service_servers: [
+          "^/robot[0-9]+/.*$"
+        ],
+
+        service_clients: [
+          "^/robot[0-9]+/.*$"
+        ],
+
+        action_servers: [
+          "^/robot[0-9]+/.*$"
+        ],
+
+        action_clients: [
+          "^/robot[0-9]+/.*$"
+        ]
+      }
+    }
+  },
+
+  scouting: {
+    multicast: {
+      enabled: false
+    },
+
+    gossip: {
+      enabled: false
+    }
+  }
+}
