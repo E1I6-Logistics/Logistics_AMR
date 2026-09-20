@@ -24,13 +24,13 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-# 환경 변수가 없으면 KeyError를 던져 즉시 중단
 TURTLEBOT3_MODEL = os.environ['TURTLEBOT3_MODEL']
 ROS_DISTRO = os.environ.get('ROS_DISTRO')
 
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+    autostart = LaunchConfiguration('autostart', default='true')
 
     map_dir = LaunchConfiguration(
         'map',
@@ -39,7 +39,6 @@ def generate_launch_description():
             'map',
             'map.yaml'))
 
-    # Keepout 마스크 yaml 파일 기본 경로
     mask_yaml_file = LaunchConfiguration(
         'mask',
         default=os.path.join(
@@ -47,7 +46,6 @@ def generate_launch_description():
             'map',
             'keepout_mask.yaml'))
 
-    # 환경 변수에 따라 모델별 파라미터 yaml 선택
     param_file_name = TURTLEBOT3_MODEL + '.yaml'
     if ROS_DISTRO == 'humble':
         param_dir = LaunchConfiguration(
@@ -88,16 +86,22 @@ def generate_launch_description():
             default_value='false',
             description='Use simulation (Gazebo) clock if true'),
 
-        # 1. Nav2 Core Bringup
+        DeclareLaunchArgument(
+            'autostart',
+            default_value='true',
+            description='Automatically startup the nav2 stack'),
+
+        # 1. Nav2 Core Bringup (autostart 인자 추가 전달)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([nav2_launch_file_dir, '/bringup_launch.py']),
             launch_arguments={
                 'map': map_dir,
                 'use_sim_time': use_sim_time,
-                'params_file': param_dir}.items(),
+                'params_file': param_dir,
+                'autostart': autostart}.items(),
         ),
 
-        # 2. Keepout Filter Mask Server (마스크 PGM 로드)
+        # 2. Keepout Filter Mask Server (토픽 리매핑 적용)
         Node(
             package='nav2_map_server',
             executable='map_server',
@@ -106,12 +110,12 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'yaml_filename': mask_yaml_file,
-                'topic_name': '/keepout_filter_mask'
-            }]
+                'yaml_filename': mask_yaml_file
+            }],
+            remappings=[('/map', '/keepout_filter_mask')]
         ),
 
-        # 3. Costmap Filter Info Server (Keepout Zone 속성 지정)
+        # 3. Costmap Filter Info Server
         Node(
             package='nav2_map_server',
             executable='costmap_filter_info_server',
@@ -128,7 +132,7 @@ def generate_launch_description():
             }]
         ),
 
-        # 4. Filter Lifecycle Manager (필터 노드 수명주기 활성화)
+        # 4. Filter Lifecycle Manager
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
@@ -137,7 +141,7 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'autostart': True,
+                'autostart': autostart,
                 'node_names': ['filter_mask_server', 'costmap_filter_info_server']
             }]
         ),
