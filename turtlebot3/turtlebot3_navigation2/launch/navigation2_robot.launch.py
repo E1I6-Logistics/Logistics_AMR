@@ -11,17 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Author: Darby Lim
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 TURTLEBOT3_MODEL = os.environ.get('TURTLEBOT3_MODEL', 'burger')
@@ -40,12 +38,8 @@ def generate_launch_description():
             'map',
             'map.yaml'))
 
-    mask_yaml_file = LaunchConfiguration(
-        'mask',
-        default=os.path.join(
-            get_package_share_directory('turtlebot3_navigation2'),
-            'map',
-            'keepout_mask.yaml'))
+    # [핵심 1] mask 기본값을 빈 문자열('')로 지정
+    mask_yaml_file = LaunchConfiguration('mask', default='')
 
     param_file_name = TURTLEBOT3_MODEL + '.yaml'
     if ROS_DISTRO == 'humble':
@@ -66,6 +60,9 @@ def generate_launch_description():
 
     nav2_launch_file_dir = os.path.join(get_package_share_directory('nav2_bringup'), 'launch')
 
+    # [핵심 2] mask 인자가 비어있지 않을 때만 True가 되는 조건식
+    has_mask = IfCondition(PythonExpression(["'", mask_yaml_file, "' != ''"]))
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'map',
@@ -74,8 +71,8 @@ def generate_launch_description():
 
         DeclareLaunchArgument(
             'mask',
-            default_value=mask_yaml_file,
-            description='Full path to filter mask yaml file to load'),
+            default_value='',
+            description='Full path to filter mask yaml file (Optional: leave empty to disable)'),
 
         DeclareLaunchArgument(
             'params_file',
@@ -97,7 +94,7 @@ def generate_launch_description():
             default_value='false',
             description='Whether to start RViz'),
 
-        # 1. Nav2 Core Bringup
+        # 1. Nav2 Core Bringup (항상 실행)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([nav2_launch_file_dir, '/bringup_launch.py']),
             launch_arguments={
@@ -108,8 +105,9 @@ def generate_launch_description():
                 'use_rviz': use_rviz}.items(),
         ),
 
-        # 2. Keepout Filter Mask Server (/keepout_filter_mask로 리매핑)
+        # 2. Keepout Filter Mask Server (mask 인자가 있을 때만 실행)
         Node(
+            condition=has_mask,
             package='nav2_map_server',
             executable='map_server',
             name='filter_mask_server',
@@ -122,8 +120,9 @@ def generate_launch_description():
             remappings=[('/map', '/keepout_filter_mask')]
         ),
 
-        # 3. Costmap Filter Info Server
+        # 3. Costmap Filter Info Server (mask 인자가 있을 때만 실행)
         Node(
+            condition=has_mask,
             package='nav2_map_server',
             executable='costmap_filter_info_server',
             name='costmap_filter_info_server',
@@ -139,8 +138,9 @@ def generate_launch_description():
             }]
         ),
 
-        # 4. Filter Lifecycle Manager (두 필터 노드를 자동 활성화)
+        # 4. Filter Lifecycle Manager (mask 인자가 있을 때만 실행)
         Node(
+            condition=has_mask,
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
             name='lifecycle_manager_costmap_filters',
