@@ -24,13 +24,14 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-TURTLEBOT3_MODEL = os.environ['TURTLEBOT3_MODEL']
-ROS_DISTRO = os.environ.get('ROS_DISTRO')
+TURTLEBOT3_MODEL = os.environ.get('TURTLEBOT3_MODEL', 'burger')
+ROS_DISTRO = os.environ.get('ROS_DISTRO', 'jazzy')
 
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     autostart = LaunchConfiguration('autostart', default='true')
+    use_rviz = LaunchConfiguration('use_rviz', default='false')
 
     map_dir = LaunchConfiguration(
         'map',
@@ -91,17 +92,23 @@ def generate_launch_description():
             default_value='true',
             description='Automatically startup the nav2 stack'),
 
-        # 1. Nav2 Core Bringup (autostart 인자 추가 전달)
+        DeclareLaunchArgument(
+            'use_rviz',
+            default_value='false',
+            description='Whether to start RViz'),
+
+        # 1. Nav2 Core Bringup
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([nav2_launch_file_dir, '/bringup_launch.py']),
             launch_arguments={
                 'map': map_dir,
                 'use_sim_time': use_sim_time,
                 'params_file': param_dir,
-                'autostart': autostart}.items(),
+                'autostart': autostart,
+                'use_rviz': use_rviz}.items(),
         ),
 
-        # 2. Keepout Filter Mask Server (토픽 리매핑 적용)
+        # 2. Keepout Filter Mask Server (/keepout_filter_mask로 리매핑)
         Node(
             package='nav2_map_server',
             executable='map_server',
@@ -132,7 +139,7 @@ def generate_launch_description():
             }]
         ),
 
-        # 4. Filter Lifecycle Manager
+        # 4. Filter Lifecycle Manager (두 필터 노드를 자동 활성화)
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
