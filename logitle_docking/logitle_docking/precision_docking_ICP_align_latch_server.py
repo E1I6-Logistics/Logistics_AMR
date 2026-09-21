@@ -154,19 +154,19 @@ class PrecisionDockingServer(Node):
         self.declare_parameter('charger_width', 0.20)
         self.declare_parameter('wing_length', 0.35)
         self.declare_parameter('wing_angle_deg', 45.0)
-        self.declare_parameter('robot_rear_length', 0.25)
+        self.declare_parameter('robot_rear_length', 0.22)
 
         # ROI 및 안전 거리
         self.declare_parameter('roi_x_min', -0.5)
         self.declare_parameter('roi_x_max', -0.12)
         self.declare_parameter('roi_y_limit', 0.30)
-        self.declare_parameter('safety_stop_dist', 0.005)
-        self.declare_parameter('blind_spot_dist', 0.20)
+        self.declare_parameter('safety_stop_dist', 0.02)
+        self.declare_parameter('blind_spot_dist', 0.35)
         self.declare_parameter('heading_align_deg', 15.0)
 
         # 최종 Yaw 정렬 파라미터
         self.declare_parameter('final_target_yaw_deg', 0.0)      # 최종 목표 Yaw (deg)
-        self.declare_parameter('final_yaw_tolerance_deg', 0.8)   # 허용 각도 오차 (deg)
+        self.declare_parameter('final_yaw_tolerance_deg', 0.1)   # 허용 각도 오차 (deg)
 
         self.update_parameters()
         self.add_on_set_parameters_callback(self.parameter_callback)
@@ -174,7 +174,7 @@ class PrecisionDockingServer(Node):
         self.latest_source_pts = None
 
         self.linear_pid = PID(p=0.15, i=0.01, d=0.05, out_min=0.0, out_max=0.03)
-        self.angular_pid = PID(p=0.5, i=0.0, d=0.20, out_min=-0.35, out_max=0.35)
+        self.angular_pid = PID(p=1, i=0.0, d=0.20, out_min=-0.35, out_max=0.35)
         self.final_yaw_pid = PID(p=0.8, i=0.0, d=0.10, out_min=-0.25, out_max=0.25)
 
         self.dist_tolerance = 0.001
@@ -460,7 +460,7 @@ class PrecisionDockingServer(Node):
                 else:
                     max_v, max_w, min_v = 0.035, 0.30, 0.008
                     if dist_err < 0.35:
-                        max_v, max_w = 0.012, 0.20
+                        max_v, max_w = 0.012, 0.25
 
                     heading_damping = max(0.0, math.cos(total_heading_err))
                     speed_mag = self.linear_pid.update(dist_err, dt)
