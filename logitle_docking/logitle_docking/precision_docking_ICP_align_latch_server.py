@@ -2,6 +2,7 @@ import math
 import numpy as np
 from enum import Enum
 from scipy.spatial import cKDTree
+from collections import deque  # ⭐⭐⭐ 큐 자료구조 추가
 
 import rclpy as rp
 from rclpy.node import Node
@@ -153,12 +154,12 @@ class PrecisionDockingServer(Node):
         self.declare_parameter('charger_width', 0.20)
         self.declare_parameter('wing_length', 0.35)
         self.declare_parameter('wing_angle_deg', 45.0)
-        self.declare_parameter('robot_rear_length', 0.20)
+        self.declare_parameter('robot_rear_length', 0.25)
 
         # ROI 및 안전 거리
         self.declare_parameter('roi_x_min', -0.5)
         self.declare_parameter('roi_x_max', -0.12)
-        self.declare_parameter('roi_y_limit', 0.20)
+        self.declare_parameter('roi_y_limit', 0.30)
         self.declare_parameter('safety_stop_dist', 0.005)
         self.declare_parameter('blind_spot_dist', 0.20)
         self.declare_parameter('heading_align_deg', 15.0)
@@ -296,6 +297,11 @@ class PrecisionDockingServer(Node):
         icp_fail_count = 0
         success_message = ""
 
+        # ⭐⭐⭐ [추가] 래칭 및 필터링용 변수 초기화
+        latched_target_odom_yaw = None 
+        rel_yaw_history = deque(maxlen=5)  # 최근 5프레임의 각도 저장
+        last_valid_rel_yaw = 0.0           # 마지막으로 유효했던 부드러운 상대 각도
+
         feedback_msg = PrecisionDock.Feedback()
         rate = self.create_rate(20.0)
         last_time = self.get_clock().now()
@@ -311,7 +317,7 @@ class PrecisionDockingServer(Node):
             last_time = current_time
 
             # -------------------------------------------------------------
-            # [STATE 0: INIT] 점군 수신 대기 및 가상 템플릿 생성
+            # [STATE 0: INIT] 점군 수신 대기 및 도크 파라미터 초기화
             # -------------------------------------------------------------
             if state == DockingState.INIT:
                 if self.latest_source_pts is None:
@@ -337,13 +343,22 @@ class PrecisionDockingServer(Node):
                 state = DockingState.ICP_APPROACH
 
             # -------------------------------------------------------------
-            # [STATE 1: ICP_APPROACH] 1차 도킹 (ICP 기반 접근 주행)
+            # [STATE 1: ICP_APPROACH] 1차 도킹 (ICP 기반 정밀 후진 진입)
             # -------------------------------------------------------------
             elif state == DockingState.ICP_APPROACH:
                 if self.latest_source_pts is None:
                     self.publish_stop()
                     if dist_err < self.blind_spot_dist:
                         self.get_logger().info('사각지대 진입 감지 -> ALIGN_YAW 상태로 전이')
+                        
+                        # [래칭 1] 사각지대 진입 시 래칭
+                        try:
+                            current_odom = self.get_current_odom_yaw()
+                            latched_target_odom_yaw = normalize_angle(current_odom + last_valid_rel_yaw)
+                            self.get_logger().info(f'[사각지대 래칭] 목표 오돔 각도: {math.degrees(latched_target_odom_yaw):.2f}°')
+                        except Exception as e:
+                            self.get_logger().warn(f'TF 룩업 실패: {e}')
+                        
                         state = DockingState.ALIGN_YAW
                     rate.sleep()
                     continue
@@ -355,6 +370,15 @@ class PrecisionDockingServer(Node):
                     if rear_to_wall_dist <= self.safety_stop_dist:
                         self.get_logger().info('후미 완전 밀착 안전 거리 도달 -> ALIGN_YAW 상태로 전이')
                         self.publish_stop()
+                        
+                        # [래칭 2] 안전 거리 밀착 시 래칭
+                        try:
+                            current_odom = self.get_current_odom_yaw()
+                            latched_target_odom_yaw = normalize_angle(current_odom + last_valid_rel_yaw)
+                            self.get_logger().info(f'[밀착 래칭] 목표 오돔 각도: {math.degrees(latched_target_odom_yaw):.2f}°')
+                        except Exception as e:
+                            self.get_logger().warn(f'TF 룩업 실패: {e}')
+
                         state = DockingState.ALIGN_YAW
                         continue
 
@@ -384,19 +408,46 @@ class PrecisionDockingServer(Node):
 
                 rel_pos = -R_mat.T @ t_vec
                 rel_x, rel_y = rel_pos[0], rel_pos[1]
-                rel_yaw = normalize_angle(-math.atan2(R_mat[1, 0], R_mat[0, 0]))
+                
+                # 원시 각도(Raw Angle) 추출
+                raw_rel_yaw = normalize_angle(-math.atan2(R_mat[1, 0], R_mat[0, 0]))
+
+                # ⭐⭐⭐ [핵심 필터링 로직] 노이즈 제거 및 벡터 이동 평균 계산
+                if fitness > 0.35 and match_cnt >= 15:
+                    rel_yaw_history.append(raw_rel_yaw)
+
+                if len(rel_yaw_history) > 0:
+                    sum_sin = sum(math.sin(y) for y in rel_yaw_history)
+                    sum_cos = sum(math.cos(y) for y in rel_yaw_history)
+                    last_valid_rel_yaw = math.atan2(sum_sin, sum_cos)
+                else:
+                    last_valid_rel_yaw = raw_rel_yaw
+                
+                # 제어에는 필터링되어 안정화된 각도를 사용
+                rel_yaw = last_valid_rel_yaw
                 dist_err = math.hypot(rel_x, rel_y)
 
                 feedback_msg.distance_remaining = float(dist_err)
                 feedback_msg.angle_remaining = float(rel_yaw)
                 goal_handle.publish_feedback(feedback_msg)
 
+                # 허용 오차 도달 확인
                 if dist_err < self.dist_tolerance and abs(rel_y) < 0.015 and fitness > 0.4:
                     self.get_logger().info('ICP 허용 오차 도달 -> ALIGN_YAW 상태로 전이')
                     self.publish_stop()
+                    
+                    # [래칭 3] 목표 지점 도달 시 래칭
+                    try:
+                        current_odom = self.get_current_odom_yaw()
+                        latched_target_odom_yaw = normalize_angle(current_odom + rel_yaw)
+                        self.get_logger().info(f'[정상 래칭] 목표 오돔 각도: {math.degrees(latched_target_odom_yaw):.2f}°')
+                    except Exception as e:
+                        self.get_logger().warn(f'TF 룩업 실패: {e}')
+
                     state = DockingState.ALIGN_YAW
                     continue
 
+                # PID 속도 제어
                 lookahead_dist = 0.25
                 raw_correction = math.atan2(rel_y, lookahead_dist)
                 clamped_correction = float(np.clip(raw_correction, -math.radians(35.0), math.radians(35.0)))
@@ -421,7 +472,7 @@ class PrecisionDockingServer(Node):
                 self.publish_cmd_vel(v_cmd, w_cmd)
 
             # -------------------------------------------------------------
-            # [STATE 2: ALIGN_YAW] 2차 정렬 (순수 math 기반 오도메트리 Yaw 정렬)
+            # [STATE 2: ALIGN_YAW] 2차 정렬 (오도메트리 TF 기반 래칭 정렬)
             # -------------------------------------------------------------
             elif state == DockingState.ALIGN_YAW:
                 try:
@@ -432,7 +483,13 @@ class PrecisionDockingServer(Node):
                     rate.sleep()
                     continue
 
-                yaw_error = normalize_angle(self.final_target_yaw_rad - current_odom_yaw)
+                # ⭐⭐⭐ [래칭 추종] 파라미터 절대값이 아닌 래칭된 목표 각도 사용
+                if latched_target_odom_yaw is not None:
+                    target_yaw = latched_target_odom_yaw
+                else:
+                    target_yaw = self.final_target_yaw_rad  # 래칭 실패 시 기존 파라미터(Fallback)
+                
+                yaw_error = normalize_angle(target_yaw - current_odom_yaw)
 
                 feedback_msg.distance_remaining = 0.0
                 feedback_msg.angle_remaining = float(yaw_error)
@@ -442,7 +499,7 @@ class PrecisionDockingServer(Node):
                     self.get_logger().info(f'최종 정렬 완료! 오차: {math.degrees(yaw_error):.2f}°')
                     self.publish_stop()
                     state = DockingState.COMPLETED
-                    success_message = "Successfully docked and aligned yaw to 0.0"
+                    success_message = "Successfully docked and aligned using Latching"
                     continue
 
                 w_out = self.final_yaw_pid.update(yaw_error, dt)
@@ -454,7 +511,7 @@ class PrecisionDockingServer(Node):
                 self.publish_cmd_vel(0.0, w_cmd)
 
             # -------------------------------------------------------------
-            # [STATE 3: COMPLETED] 성공 반환
+            # [STATE 3: COMPLETED] 완료
             # -------------------------------------------------------------
             elif state == DockingState.COMPLETED:
                 self.publish_stop()
