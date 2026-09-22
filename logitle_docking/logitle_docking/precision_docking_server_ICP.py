@@ -2,6 +2,7 @@ import math
 import numpy as np
 from enum import Enum
 from scipy.spatial import cKDTree
+from collections import deque
 
 import rclpy as rp
 from rclpy.node import Node
@@ -19,13 +20,13 @@ from turtlebot3_my_msg.action import PrecisionDock
 
 
 # ---------------------------------------------------------
-# [상태 머신 정의]
+# [상태 머신 정의] 3단계 제어 시퀀스로 변경 (하드웨어 한계 극복)
 # ---------------------------------------------------------
 class DockingState(Enum):
     INIT = 0               # 점군 수신 대기 및 도크 파라미터 초기화
-    ICP_APPROACH = 1       # 1차 도킹: ICP 기반 정밀 후진 진입
-    ALIGN_YAW = 2          # 2차 정렬: 오도메트리 TF 기반 최종 Yaw 0.0 정렬
-    COMPLETED = 3          # 도킹 및 정렬 성공 완료
+    ALIGN_IN_PLACE = 1     # 1차: 사각지대 진입 전 제자리 회전으로 완벽한 평행(Yaw) 맞추기
+    BLIND_INSERT = 2       # 2차: 눈 감고 오도메트리 기반 일직선 후진
+    COMPLETED = 3          # 도킹 완료
     FAILED = 4             # 도킹 실패/중단
 
 
@@ -35,10 +36,7 @@ def normalize_angle(angle: float) -> float:
 
 
 def get_yaw_from_quaternion(q) -> float:
-    """
-    외부 패키지(transforms3d 등) 없이 표준 math 모듈만으로
-    쿼터니언 (x, y, z, w)에서 Z축 회전각(Yaw, 라디안)을 계산합니다.
-    """
+    """쿼터니언 (x, y, z, w)에서 Z축 회전각(Yaw, 라디안)을 계산합니다."""
     siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
     cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
     return math.atan2(siny_cosp, cosy_cosp)
@@ -148,38 +146,35 @@ class PrecisionDockingServer(Node):
         self.cmd_vel_pub = self.create_publisher(TwistStamped, '/cmd_vel', 10)
 
         # ---------------------------------------------------------
-        # 파라미터 선언
+        # 파라미터 선언 (터틀봇3 버거 및 현재 하드웨어 맞춤형)
         # ---------------------------------------------------------
-        self.declare_parameter('charger_width', 0.25)
+        self.declare_parameter('charger_width', 0.20)
         self.declare_parameter('wing_length', 0.35)
-        self.declare_parameter('wing_angle_deg', 45.0)
-        self.declare_parameter('robot_rear_length', 0.25)
+        self.declare_parameter('wing_angle_deg', 35.0)  # 수정된 가벽 각도 반영
+        self.declare_parameter('robot_rear_length', 0.20) # 부착물 포함 로봇 후면 길이 (필요시 조절)
 
         # ROI 및 안전 거리
-        self.declare_parameter('roi_x_min', -0.8)
-        self.declare_parameter('roi_x_max', -0.15)
-        self.declare_parameter('roi_y_limit', 0.20)
+        self.declare_parameter('roi_x_min', -0.5)
+        self.declare_parameter('roi_x_max', -0.9) # 로봇 자신의 기둥/바퀴가 찍히지 않도록 뒤로 밀음
+        self.declare_parameter('roi_y_limit', 0.30)
         self.declare_parameter('safety_stop_dist', 0.01)
-        self.declare_parameter('blind_spot_dist', 0.20)
+        self.declare_parameter('blind_spot_dist', 0.25)
         self.declare_parameter('heading_align_deg', 15.0)
 
         # 최종 Yaw 정렬 파라미터
-        self.declare_parameter('final_target_yaw_deg', 0.0)      # 최종 목표 Yaw (deg)
-        self.declare_parameter('final_yaw_tolerance_deg', 0.8)   # 허용 각도 오차 (deg)
+        self.declare_parameter('final_target_yaw_deg', 0.0)
+        self.declare_parameter('final_yaw_tolerance_deg', 0.8)
 
         self.update_parameters()
         self.add_on_set_parameters_callback(self.parameter_callback)
 
         self.latest_source_pts = None
 
-        self.linear_pid = PID(p=0.2, i=0.2, d=0.05, out_min=-0.6, out_max=0.03)
-        self.angular_pid = PID(p=1, i=0.5, d=0.20, out_min=-0.12, out_max=0.35)
-        self.final_yaw_pid = PID(p=0.8, i=0.0, d=0.10, out_min=-0.12, out_max=0.25)
-        
+        self.linear_pid = PID(p=0.15, i=0.01, d=0.05, out_min=0.0, out_max=0.03)
+        self.angular_pid = PID(p=0.5, i=0.01, d=0.20, out_min=-0.25, out_max=0.25)
+        self.final_yaw_pid = PID(p=0.8, i=0.0, d=0.10, out_min=-0.15, out_max=0.15)
 
-        self.dist_tolerance = 0.001
-
-        self.get_logger().info('2단계(ICP -> Odom Yaw 정렬) 정밀 도킹 서버 준비 완료.')
+        self.get_logger().info('3단계 정밀 도킹 서버(제자리 정렬 -> 일직선 후진) 준비 완료.')
 
     def update_parameters(self):
         self.charger_width = self.get_parameter('charger_width').value
@@ -264,6 +259,14 @@ class PrecisionDockingServer(Node):
         t = self.tf_buffer.lookup_transform('odom', 'base_link', rp.time.Time())
         return get_yaw_from_quaternion(t.transform.rotation)
 
+    def get_current_odom_pose(self):
+        """TF 버퍼에서 odom 기준 현재 위치(X, Y)와 각도(Yaw)를 모두 가져옵니다."""
+        t = self.tf_buffer.lookup_transform('odom', 'base_link', rp.time.Time())
+        x = t.transform.translation.x
+        y = t.transform.translation.y
+        yaw = get_yaw_from_quaternion(t.transform.rotation)
+        return x, y, yaw
+
     def goal_callback(self, goal_request):
         self.get_logger().info('도킹 액션 요청 수락')
         return GoalResponse.ACCEPT
@@ -284,7 +287,7 @@ class PrecisionDockingServer(Node):
         self.publish_cmd_vel(0.0, 0.0)
 
     def execute_callback(self, goal_handle):
-        self.get_logger().info('도킹 시퀀스 가동 (상태 머신 시작)')
+        self.get_logger().info('3단계(정지 정렬 -> 블라인드 후진) 도킹 시퀀스 가동')
         state = DockingState.INIT
         self.angular_pid.reset()
         self.linear_pid.reset()
@@ -292,10 +295,18 @@ class PrecisionDockingServer(Node):
 
         active_target_pts = None
         current_transform = np.identity(3)
-        dist_err = 999.0
         is_first_frame = True
         icp_fail_count = 0
         success_message = ""
+
+        # 블라인드 후진을 위한 래칭 변수
+        latched_target_odom_yaw = 0.0
+        latched_start_odom_pos = (0.0, 0.0)
+        target_insert_dist = 0.0
+        
+        # 노이즈 필터링 변수
+        rel_yaw_history = deque(maxlen=5)
+        last_valid_rel_yaw = 0.0
 
         feedback_msg = PrecisionDock.Feedback()
         rate = self.create_rate(20.0)
@@ -312,10 +323,11 @@ class PrecisionDockingServer(Node):
             last_time = current_time
 
             # -------------------------------------------------------------
-            # [STATE 0: INIT] 점군 수신 대기 및 가상 템플릿 생성
+            # [STATE 0: INIT]
             # -------------------------------------------------------------
             if state == DockingState.INIT:
                 if self.latest_source_pts is None:
+                    self.get_logger().info('라이다 ROI 구역 내 점군 데이터 대기 중...', throttle_duration_sec=2.0)
                     self.publish_stop()
                     rate.sleep()
                     continue
@@ -334,30 +346,17 @@ class PrecisionDockingServer(Node):
                 gap = req_pos.x if req_pos.x > 0.0 else safe_gap
                 active_target_pts = self.generate_v_funnel_target(w, l, ang, gap)
 
-                self.get_logger().info('>> [상태 전이] INIT -> ICP_APPROACH (1차 도킹 후진)')
-                state = DockingState.ICP_APPROACH
+                self.get_logger().info('>> [상태 전이] INIT -> ALIGN_IN_PLACE (제자리 평행 정렬)')
+                state = DockingState.ALIGN_IN_PLACE
 
             # -------------------------------------------------------------
-            # [STATE 1: ICP_APPROACH] 1차 도킹 (ICP 기반 접근 주행)
+            # [STATE 1: ALIGN_IN_PLACE] 제자리 회전으로 평행 맞추기
             # -------------------------------------------------------------
-            elif state == DockingState.ICP_APPROACH:
+            elif state == DockingState.ALIGN_IN_PLACE:
                 if self.latest_source_pts is None:
                     self.publish_stop()
-                    if dist_err < self.blind_spot_dist:
-                        self.get_logger().info('사각지대 진입 감지 -> ALIGN_YAW 상태로 전이')
-                        state = DockingState.ALIGN_YAW
                     rate.sleep()
                     continue
-
-                pts = self.latest_source_pts
-                if len(pts) > 0:
-                    lidar_to_wall_dist = abs(np.min(pts[:, 0]))
-                    rear_to_wall_dist = lidar_to_wall_dist - self.robot_rear_length
-                    if rear_to_wall_dist <= self.safety_stop_dist:
-                        self.get_logger().info('후미 완전 밀착 안전 거리 도달 -> ALIGN_YAW 상태로 전이')
-                        self.publish_stop()
-                        state = DockingState.ALIGN_YAW
-                        continue
 
                 search_r = 1.5 if is_first_frame else 0.35
                 current_transform, fitness, match_cnt = icp_2d(
@@ -368,7 +367,7 @@ class PrecisionDockingServer(Node):
                 if match_cnt < 10:
                     icp_fail_count += 1
                     if icp_fail_count > 5:
-                        self.get_logger().warn('ICP 매칭 연속 실패, 초기 위치 복원!')
+                        self.get_logger().warn('ICP 매칭 실패, 초기 위치 복원!')
                         current_transform = np.identity(3)
                         is_first_frame = True
                         icp_fail_count = 0
@@ -385,77 +384,92 @@ class PrecisionDockingServer(Node):
 
                 rel_pos = -R_mat.T @ t_vec
                 rel_x, rel_y = rel_pos[0], rel_pos[1]
-                rel_yaw = normalize_angle(-math.atan2(R_mat[1, 0], R_mat[0, 0]))
-                dist_err = math.hypot(rel_x, rel_y)
+                raw_rel_yaw = normalize_angle(-math.atan2(R_mat[1, 0], R_mat[0, 0]))
 
-                feedback_msg.distance_remaining = float(dist_err)
-                feedback_msg.angle_remaining = float(rel_yaw)
+                # 노이즈 필터링
+                if fitness > 0.35 and match_cnt >= 15:
+                    rel_yaw_history.append(raw_rel_yaw)
+
+                if len(rel_yaw_history) > 0:
+                    sum_sin = sum(math.sin(y) for y in rel_yaw_history)
+                    sum_cos = sum(math.cos(y) for y in rel_yaw_history)
+                    last_valid_rel_yaw = math.atan2(sum_sin, sum_cos)
+                else:
+                    last_valid_rel_yaw = raw_rel_yaw
+
+                feedback_msg.distance_remaining = float(math.hypot(rel_x, rel_y))
+                feedback_msg.angle_remaining = float(last_valid_rel_yaw)
                 goal_handle.publish_feedback(feedback_msg)
 
-                if dist_err < self.dist_tolerance and abs(rel_y) < 0.015 and fitness > 0.4:
-                    self.get_logger().info('ICP 허용 오차 도달 -> ALIGN_YAW 상태로 전이')
+                # 각도 오차가 1.5도 이내로 맞춰지면 후진 거리 래칭 후 전이
+                if abs(last_valid_rel_yaw) <= math.radians(1.5):
                     self.publish_stop()
-                    state = DockingState.ALIGN_YAW
+                    
+                    # 후진해야 할 물리적 거리 계산
+                    lidar_to_wall_dist = abs(np.min(self.latest_source_pts[:, 0])) if len(self.latest_source_pts) > 0 else 999.0
+                    rear_to_wall_dist = lidar_to_wall_dist - self.robot_rear_length
+                    target_insert_dist = max(0.0, rear_to_wall_dist - self.safety_stop_dist)
+                    
+                    try:
+                        curr_x, curr_y, curr_yaw = self.get_current_odom_pose()
+                        latched_target_odom_yaw = curr_yaw
+                        latched_start_odom_pos = (curr_x, curr_y)
+                        
+                        self.get_logger().info(f'>> [정렬 완료] Y축 중심오차: {rel_y*100:.1f}cm')
+                        self.get_logger().info(f'>> {target_insert_dist*100:.1f}cm 블라인드 후진 시작 (BLIND_INSERT)')
+                        state = DockingState.BLIND_INSERT
+                    except Exception as e:
+                        self.get_logger().warn(f'TF 룩업 실패: {e}')
                     continue
 
-                lookahead_dist = 0.25
-                raw_correction = math.atan2(rel_y, lookahead_dist)
-                clamped_correction = float(np.clip(raw_correction, -math.radians(35.0), math.radians(35.0)))
-                total_heading_err = normalize_angle(rel_yaw - clamped_correction)
-
-                if abs(total_heading_err) > math.radians(self.heading_align_deg):
-                    v_cmd = 0.0
-                    w_raw = self.angular_pid.update(total_heading_err, dt)
-                    w_cmd = float(np.clip(w_raw, -0.35, 0.35))
-                else:
-                    max_v, max_w, min_v = 0.035, 0.30, 0.008
-                    if dist_err < 0.35:
-                        max_v, max_w = 0.012, 0.35
-
-                    heading_damping = max(0.0, math.cos(total_heading_err))
-                    speed_mag = self.linear_pid.update(dist_err, dt)
-
-                    v_cmd = -float(np.clip(speed_mag * heading_damping, min_v, max_v))
-                    w_raw = self.angular_pid.update(total_heading_err, dt)
-                    w_cmd = float(np.clip(w_raw, -max_w, max_w))
-
-                self.publish_cmd_vel(v_cmd, w_cmd)
+                # PID 제어: 직진(v_cmd)은 막고 제자리 회전(w_cmd)만 수행
+                w_out = self.angular_pid.update(last_valid_rel_yaw, dt)
+                w_cmd = float(np.clip(w_out, -0.25, 0.25))
+                
+                # 터틀봇 모터 마찰 극복 최소 속도 보장
+                if abs(w_cmd) < 0.05:
+                    w_cmd = 0.05 if w_cmd > 0 else -0.05
+                    
+                self.publish_cmd_vel(0.0, w_cmd) 
 
             # -------------------------------------------------------------
-            # [STATE 2: ALIGN_YAW] 2차 정렬 (순수 math 기반 오도메트리 Yaw 정렬)
+            # [STATE 2: BLIND_INSERT] 오도메트리 기반 일직선 후진
             # -------------------------------------------------------------
-            elif state == DockingState.ALIGN_YAW:
+            elif state == DockingState.BLIND_INSERT:
                 try:
-                    current_odom_yaw = self.get_current_odom_yaw()
+                    curr_x, curr_y, curr_yaw = self.get_current_odom_pose()
                 except Exception as e:
-                    self.get_logger().warn(f'TF 룩업 대기 중: {e}')
                     self.publish_stop()
                     rate.sleep()
                     continue
 
-                yaw_error = normalize_angle(self.final_target_yaw_rad - current_odom_yaw)
+                # 시작 위치에서부터 이동한 직선 거리 계산
+                moved_dist = math.hypot(curr_x - latched_start_odom_pos[0], curr_y - latched_start_odom_pos[1])
+                remain_dist = target_insert_dist - moved_dist
 
-                feedback_msg.distance_remaining = 0.0
-                feedback_msg.angle_remaining = float(yaw_error)
+                feedback_msg.distance_remaining = float(remain_dist)
+                feedback_msg.angle_remaining = float(normalize_angle(latched_target_odom_yaw - curr_yaw))
                 goal_handle.publish_feedback(feedback_msg)
 
-                if abs(yaw_error) <= self.final_yaw_tolerance_rad:
-                    self.get_logger().info(f'최종 정렬 완료! 오차: {math.degrees(yaw_error):.2f}°')
+                # 목표 거리 도달 시 멈춤
+                if remain_dist <= 0.005:
                     self.publish_stop()
+                    self.get_logger().info('블라인드 후진 도킹 완료!')
                     state = DockingState.COMPLETED
-                    success_message = "Successfully docked and aligned yaw to 0.0"
+                    success_message = "Successfully docked via Blind Insertion"
                     continue
 
-                w_out = self.final_yaw_pid.update(yaw_error, dt)
-                w_cmd = float(np.clip(w_out, -0.20, 0.20))
+                # 직진성 유지를 위한 미세 Yaw 보정 (래칭된 각도 유지)
+                yaw_err = normalize_angle(latched_target_odom_yaw - curr_yaw)
+                w_cmd = self.final_yaw_pid.update(yaw_err, dt)
+                w_cmd = float(np.clip(w_cmd, -0.15, 0.15))
 
-                if abs(w_cmd) < 0.03:
-                    w_cmd = 0.03 if w_cmd > 0 else -0.03
-
-                self.publish_cmd_vel(0.0, w_cmd)
+                # 고정 속도로 안전하게 후진 (속도를 0.015m/s로 아주 천천히 제한)
+                v_cmd = -0.015
+                self.publish_cmd_vel(v_cmd, w_cmd)
 
             # -------------------------------------------------------------
-            # [STATE 3: COMPLETED] 성공 반환
+            # [STATE 3: COMPLETED]
             # -------------------------------------------------------------
             elif state == DockingState.COMPLETED:
                 self.publish_stop()

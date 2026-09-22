@@ -165,7 +165,7 @@ class PrecisionDockingServer(Node):
 
         # 최종 Yaw 정렬 파라미터
         self.declare_parameter('final_target_yaw_deg', 0.0)      # 최종 목표 Yaw (deg)
-        self.declare_parameter('final_yaw_tolerance_deg', 0.8)   # 허용 각도 오차 (deg)
+        self.declare_parameter('final_yaw_tolerance_deg', 0.1)   # 허용 각도 오차 (deg)
 
         self.update_parameters()
         self.add_on_set_parameters_callback(self.parameter_callback)
