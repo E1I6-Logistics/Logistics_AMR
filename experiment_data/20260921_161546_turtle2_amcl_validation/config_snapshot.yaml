@@ -1,0 +1,44 @@
+robot:
+  schema_version: 1
+  robot:
+    name: turtle2
+    ros_domain_id: 31
+    namespace: ''
+  topics:
+    amcl_pose: /amcl_pose
+    initialpose: /initialpose
+    cmd_vel: /cmd_vel
+    scan: /scan
+    odom: /odom
+    wheel_odom: /wheel/odom
+    imu: /imu
+  actions:
+    navigate_to_pose: /navigate_to_pose
+  frames:
+    map: map
+    odom: odom
+    base: base_footprint
+scenario:
+  schema_version: 1
+  scenario:
+    id: goal_alignment
+    description: GOAL reference alignment for investigating the left-side stop cluster
+    reference_points:
+      goal:
+        x: 1.7
+        y: 0.192
+        yaw: 0.1167
+experiment:
+  schema_version: 1
+  experiment:
+    type: amcl_validation
+    name: amcl_validation
+    trials_per_reference: 3
+  initial_localization:
+    position_stddev_m: 0.05
+    yaw_stddev_deg: 5.0
+    settle_sec: 1.0
+  execution:
+    post_motion_settle_sec: 3.0
+    stationary_duration_sec: 30.0
+    sample_interval_sec: 1.0

@@ -7,6 +7,17 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+install/
+log/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Experiment outputs: compact evidence is tracked; large raw data is local/LFS.
+experiment_data/**/trace.csv
+experiment_data/**/*.db3
+experiment_data/**/*.mcap
+experiment_data/**/photos/*
+!experiment_data/**/photos/.gitkeep
 
 # 운영체제 생성 임시 파일
 .DS_Store
