@@ -11,26 +11,25 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Author: Darby Lim
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
-# 환경 변수가 없으면 KeyError를 던져 즉시 중단
-TURTLEBOT3_MODEL = os.environ['TURTLEBOT3_MODEL']
-ROS_DISTRO = os.environ.get('ROS_DISTRO')
+TURTLEBOT3_MODEL = os.environ.get('TURTLEBOT3_MODEL', 'burger')
+ROS_DISTRO = os.environ.get('ROS_DISTRO', 'jazzy')
 
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+    autostart = LaunchConfiguration('autostart', default='true')
+    use_rviz = LaunchConfiguration('use_rviz', default='false')
 
     map_dir = LaunchConfiguration(
         'map',
@@ -39,15 +38,9 @@ def generate_launch_description():
             'map',
             'map.yaml'))
 
-    # Keepout 마스크 yaml 파일 기본 경로
-    mask_yaml_file = LaunchConfiguration(
-        'mask',
-        default=os.path.join(
-            get_package_share_directory('turtlebot3_navigation2'),
-            'map',
-            'keepout_mask.yaml'))
+    # [핵심 1] mask 기본값을 빈 문자열('')로 지정
+    mask_yaml_file = LaunchConfiguration('mask', default='')
 
-    # 환경 변수에 따라 모델별 파라미터 yaml 선택
     param_file_name = TURTLEBOT3_MODEL + '.yaml'
     if ROS_DISTRO == 'humble':
         param_dir = LaunchConfiguration(
@@ -67,6 +60,9 @@ def generate_launch_description():
 
     nav2_launch_file_dir = os.path.join(get_package_share_directory('nav2_bringup'), 'launch')
 
+    # [핵심 2] mask 인자가 비어있지 않을 때만 True가 되는 조건식
+    has_mask = IfCondition(PythonExpression(["'", mask_yaml_file, "' != ''"]))
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'map',
@@ -75,8 +71,8 @@ def generate_launch_description():
 
         DeclareLaunchArgument(
             'mask',
-            default_value=mask_yaml_file,
-            description='Full path to filter mask yaml file to load'),
+            default_value='',
+            description='Full path to filter mask yaml file (Optional: leave empty to disable)'),
 
         DeclareLaunchArgument(
             'params_file',
@@ -88,17 +84,30 @@ def generate_launch_description():
             default_value='false',
             description='Use simulation (Gazebo) clock if true'),
 
-        # 1. Nav2 Core Bringup
+        DeclareLaunchArgument(
+            'autostart',
+            default_value='true',
+            description='Automatically startup the nav2 stack'),
+
+        DeclareLaunchArgument(
+            'use_rviz',
+            default_value='false',
+            description='Whether to start RViz'),
+
+        # 1. Nav2 Core Bringup (항상 실행)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([nav2_launch_file_dir, '/bringup_launch.py']),
             launch_arguments={
                 'map': map_dir,
                 'use_sim_time': use_sim_time,
-                'params_file': param_dir}.items(),
+                'params_file': param_dir,
+                'autostart': autostart,
+                'use_rviz': use_rviz}.items(),
         ),
 
-        # 2. Keepout Filter Mask Server (마스크 PGM 로드)
+        # 2. Keepout Filter Mask Server (mask 인자가 있을 때만 실행)
         Node(
+            condition=has_mask,
             package='nav2_map_server',
             executable='map_server',
             name='filter_mask_server',
@@ -106,13 +115,14 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'yaml_filename': mask_yaml_file,
-                'topic_name': '/keepout_filter_mask'
-            }]
+                'yaml_filename': mask_yaml_file
+            }],
+            remappings=[('/map', '/keepout_filter_mask')]
         ),
 
-        # 3. Costmap Filter Info Server (Keepout Zone 속성 지정)
+        # 3. Costmap Filter Info Server (mask 인자가 있을 때만 실행)
         Node(
+            condition=has_mask,
             package='nav2_map_server',
             executable='costmap_filter_info_server',
             name='costmap_filter_info_server',
@@ -128,8 +138,9 @@ def generate_launch_description():
             }]
         ),
 
-        # 4. Filter Lifecycle Manager (필터 노드 수명주기 활성화)
+        # 4. Filter Lifecycle Manager (mask 인자가 있을 때만 실행)
         Node(
+            condition=has_mask,
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
             name='lifecycle_manager_costmap_filters',
@@ -137,7 +148,7 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=[{
                 'use_sim_time': use_sim_time,
-                'autostart': True,
+                'autostart': autostart,
                 'node_names': ['filter_mask_server', 'costmap_filter_info_server']
             }]
         ),

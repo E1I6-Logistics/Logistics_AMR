@@ -1,6 +1,8 @@
 from setuptools import find_packages, setup
+import os
+from glob import glob
 
-package_name = 'logitle_docking'
+package_name = 'zenoh_pkg'
 
 setup(
     name=package_name,
@@ -10,11 +12,13 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='jhlee',
-    maintainer_email='dl1wjd2@gmail.com',
+    maintainer='ugie01',
+    maintainer_email='dlauddnr1@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
     extras_require={
@@ -24,11 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'precision_docking_ICP_server = logitle_docking.precision_docking_ICP_server:main',
-            'precision_docking_ICP_align_server = logitle_docking.precision_docking_ICP_align_server:main',
-            'precision_docking_ICP_align_latch_server = logitle_docking.precision_docking_ICP_align_latch_server:main',
-            'precision_docking_ICP_align_server_V2 = logitle_docking.precision_docking_ICP_align_server_V2:main',
-
+            'zenoh_bridge_node = zenoh_pkg.zenoh_bridge_node:main'
         ],
     },
 )
