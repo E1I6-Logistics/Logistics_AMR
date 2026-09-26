@@ -8,6 +8,9 @@ from nav_msgs.msg import Odometry
 import rclpy
 
 
+DEFAULT_SETTLE_TIME = 3.0
+
+
 def quaternion_to_yaw(x, y, z, w):
     """Convert a quaternion to planar yaw."""
     return math.atan2(
@@ -33,7 +36,7 @@ class OdomMotionController:
         node,
         cmd_vel_topic="/cmd_vel",
         odom_topic="/odom",
-        settle_time=1.0,
+        settle_time=DEFAULT_SETTLE_TIME,
     ):
         self.node = node
         self.odom = None

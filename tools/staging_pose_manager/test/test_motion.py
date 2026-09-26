@@ -4,14 +4,18 @@ import math
 
 import pytest
 
-from staging_pose_manager.motion import OdomMotionController
+from staging_pose_manager.motion import DEFAULT_SETTLE_TIME, OdomMotionController
 
 
-def controller_without_ros(settle_time=1.0):
+def controller_without_ros(settle_time=DEFAULT_SETTLE_TIME):
     """Construct a controller shell for testing high-level sequencing."""
     controller = object.__new__(OdomMotionController)
     controller.settle_time = settle_time
     return controller
+
+
+def test_default_settle_time_is_three_seconds():
+    assert DEFAULT_SETTLE_TIME == 3.0
 
 
 def test_translation_waits_between_both_motion_legs():

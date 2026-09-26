@@ -21,6 +21,8 @@ from tf2_ros import Buffer, TransformException, TransformListener
 TARGET_FRAME = "map"
 SOURCE_FRAME = "base_footprint"
 RECORD_DIR = records_dir()
+PRE_SAMPLE_SETTLE_TIME = 3.0
+DEFAULT_SAMPLE_INTERVAL = 0.1
 
 
 class UserQuit(Exception):
@@ -68,9 +70,10 @@ class StagingPoseRecorder(Node):
 
 
 def collect_samples(node, sample_count, interval):
-    """Collect an all-or-nothing set of TF samples."""
+    """Collect an all-or-nothing set of distinct TF samples."""
     samples = []
-    last_success = time.monotonic()
+    last_stamp = None
+    last_fresh_sample = time.monotonic()
     next_sample = time.monotonic()
     missing_timeout = max(5.0, sample_count * interval * 4.0)
     try:
@@ -82,15 +85,19 @@ def collect_samples(node, sample_count, interval):
             try:
                 sample = node.get_pose()
             except TransformException:
-                if time.monotonic() - last_success > missing_timeout:
+                if time.monotonic() - last_fresh_sample > missing_timeout:
                     raise SamplingError(
-                        "map -> base_footprint TF가 너무 오래 없습니다."
+                        "새 map -> base_footprint TF를 너무 오래 받지 못했습니다."
                     )
                 next_sample = time.monotonic() + min(interval, 0.05)
                 continue
+            if sample["stamp"] == last_stamp:
+                next_sample = time.monotonic() + min(interval, 0.05)
+                continue
             samples.append(sample)
-            last_success = time.monotonic()
-            next_sample = last_success + interval
+            last_stamp = sample["stamp"]
+            last_fresh_sample = time.monotonic()
+            next_sample = last_fresh_sample + interval
             print(f"\rSamples: {len(samples):>3} / {sample_count}", end="", flush=True)
     except KeyboardInterrupt:
         print("\n샘플링이 중단되었습니다. partial samples는 폐기합니다.")
@@ -100,6 +107,40 @@ def collect_samples(node, sample_count, interval):
     if len(samples) != sample_count:
         raise SamplingError("ROS 종료로 샘플링이 완료되지 않았습니다.")
     return samples, calculate_statistics(samples)
+
+
+def settle_before_sampling(node, duration=PRE_SAMPLE_SETTLE_TIME):
+    """Keep processing ROS callbacks while the stationary pose settles."""
+    duration = float(duration)
+    if not math.isfinite(duration) or duration < 0.0:
+        raise ValueError("settle duration must be a non-negative finite number")
+    if duration == 0.0:
+        return
+
+    try:
+        initial_stamp = node.get_pose()["stamp"]
+    except TransformException:
+        initial_stamp = None
+
+    print(f"샘플링 전 정지 안정화: {duration:.1f}초")
+    deadline = time.monotonic() + duration
+    while rclpy.ok() and time.monotonic() < deadline:
+        rclpy.spin_once(
+            node,
+            timeout_sec=min(0.05, max(0.0, deadline - time.monotonic())),
+        )
+    if not rclpy.ok():
+        raise SamplingError("ROS 종료로 정지 안정화가 중단되었습니다.")
+    try:
+        settled_stamp = node.get_pose()["stamp"]
+    except TransformException as exc:
+        raise SamplingError(
+            "안정화 후 map -> base_footprint TF를 읽지 못했습니다."
+        ) from exc
+    if initial_stamp is not None and settled_stamp == initial_stamp:
+        raise SamplingError(
+            f"{duration:.1f}초 동안 새 map -> base_footprint TF가 없었습니다."
+        )
 
 
 def run_preflight(node):
@@ -191,7 +232,11 @@ def create_session(station_id=None):
             station_id = None
     trial_count = prompt_number("Trial count [5]: ", 5, int)
     sample_count = prompt_number("Samples per measurement [30]: ", 30, int)
-    interval = prompt_number("Sample interval seconds [0.05]: ", 0.05, float)
+    interval = prompt_number(
+        f"Sample interval seconds [{DEFAULT_SAMPLE_INTERVAL:.2f}]: ",
+        DEFAULT_SAMPLE_INTERVAL,
+        float,
+    )
     return SessionManager.create(
         RECORD_DIR, station_id, trial_count, sample_count, interval
     )
@@ -207,6 +252,7 @@ def run_baseline(node, session):
         choice = input("정렬과 정지를 확인한 뒤 Enter ([q] quit): ").strip().lower()
         if choice == "q":
             raise UserQuit
+        settle_before_sampling(node)
         print("map -> base_footprint sampling...")
         samples, result = collect_samples(
             node,
@@ -248,6 +294,7 @@ def run_trials(node, session, motion):
                     break
                 session.start_trial(trial, perturbation)
                 continue
+            settle_before_sampling(node)
             print("map -> base_footprint sampling...")
             samples, result = collect_samples(
                 node,
