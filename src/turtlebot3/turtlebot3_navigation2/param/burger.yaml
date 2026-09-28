@@ -100,63 +100,62 @@ docking_server:
 
 controller_server:
   ros__parameters:
+    use_sim_time: false
     controller_frequency: 10.0
-    min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.001
-    min_theta_velocity_threshold: 0.001
+    min_x_velocity_threshold: 0.01
+    min_y_velocity_threshold: 0.01
+    min_theta_velocity_threshold: 0.02
     failure_tolerance: 0.3
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
+
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.1
       movement_time_allowance: 10.0
+
     goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
-    FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: true
-      min_vel_x: 0.0
-      min_vel_y: 0.0
-      max_vel_x: 0.3
-      max_vel_y: 0.0
-      max_vel_theta: 1.0
-      min_speed_xy: 0.0
-      max_speed_xy: 0.3
-      min_speed_theta: 0.0
-      acc_lim_x: 3.0
-      acc_lim_y: 0.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.5
-      decel_lim_y: 0.0
-      decel_lim_theta: -3.2
-      vx_samples: 20
-      vy_samples: 0
-      vtheta_samples: 40
-      sim_time: 1.5
-      linear_granularity: 0.05
-      angular_granularity: 0.025
-      transform_tolerance: 0.2
       xy_goal_tolerance: 0.05
-      trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: true
-      stateful: true
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      yaw_goal_tolerance: 0.15
+
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      
+      # 1. 일정한 선속도 유지 (감속 트리거 전체 해제)
+      desired_linear_vel: 0.22
+
+      max_linear_accel: 0.05          # 0.2 m/s^2 설정 시 0 -> 0.22 m/s까지 약 1.1초 동안 부드럽게 가속
+      max_linear_decel: 0.5          # 감속도 제한
+
+
+      lookahead_dist: 0.4
+      use_velocity_scaled_lookahead_dist: false
+      use_regulated_linear_velocity_scaling: false
+      use_cost_regulated_linear_velocity_scaling: false
+      use_approach_linear_velocity_scaling: false   # 목표 지점 접근 시 감속 끄기
+
+      # 2. 일정한 제자리 회전 제어
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.35             # 약 20도 이상 헤딩 오차 시 제자리 회전
+      rotate_to_heading_angular_vel: 0.4            # 회전 각속도 고정
+      max_angular_accel: 0.8                        # 가속도 상한을 낮춰 일정한 템포 유지
+
+      # 3. TF 허용치 및 충돌 감지
+      transform_tolerance: 0.2
+      use_collision_detection: true
+      max_robot_pose_search_dist: 5.0
+      use_interpolation: true
+
     enable_stamped_cmd_vel: true
+
+      # # 감속 조절 파라미터
+      # use_regulated_linear_velocity_scaling: true
+      # use_cost_regulated_linear_velocity_scaling: true
+      # regulated_linear_scaling_min_radius: 0.5
+      # regulated_linear_scaling_min_speed: 0.05
 
 local_costmap:
   local_costmap:
@@ -379,7 +378,7 @@ collision_monitor:
         theta_max: 1.0
     observation_sources: ["scan"]
     scan:
-      source_timeout: 0.2
+      source_timeout: 0.5
       type: "scan"
       topic: "/scan"
       enabled: true
@@ -405,7 +404,6 @@ lifecycle_manager_navigation:
     autostart: true
     bond_timeout: 0.0
     node_names: ['controller_server',
-                 'smoother_server',
                  'planner_server',
                  'behavior_server',
                  'bt_navigator',
