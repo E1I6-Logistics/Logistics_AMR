@@ -21,6 +21,7 @@
   <exec_depend>rviz2</exec_depend>
   <exec_depend>turtlebot3_description</exec_depend>
   <exec_depend>turtlebot3_node</exec_depend>
+  <exec_depend>ld08_driver</exec_depend>        ### 추가
   <export>
     <build_type>ament_cmake</build_type>
   </export>
