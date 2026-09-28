@@ -1,0 +1,16 @@
+robot:
+  name: turtle2
+  ros_domain_id: 31
+  namespace: ""
+
+topics:
+  wheel_odom: /wheel/odom
+  odom: /odom
+  imu: /imu
+  scan: /scan
+  cmd_vel: /cmd_vel
+  amcl_pose: /amcl_pose
+
+localization:
+  ekf_enabled: true
+  odometry_topic: /odom

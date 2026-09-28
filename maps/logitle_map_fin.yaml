@@ -1,0 +1,7 @@
+image: logitle_map_fin.pgm
+mode: trinary
+resolution: 0.050
+origin: [-1.360, -1.061, 0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196

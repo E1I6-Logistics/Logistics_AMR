@@ -1,0 +1,10 @@
+experiment:
+  name: baseline
+  trials: 5
+
+goal_checker:
+  xy_goal_tolerance: 0.25
+  yaw_goal_tolerance: 0.25     ## 14.3도
+
+execution:
+  auto_return_to_start: false

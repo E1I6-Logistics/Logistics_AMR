@@ -1,0 +1,17 @@
+scenario:
+  name: straight
+  distance_m: 1.80
+
+start:
+  x: -0.0797
+  y: -0.0167
+  yaw: 0.1167
+
+goal:
+  x: 1.7000
+  y: 0.1920
+  yaw: 0.1167
+
+start_check:
+  position_tolerance_m: 0.03
+  yaw_tolerance_deg: 3.0

@@ -1,0 +1,40 @@
+experiment:
+  name: xy_goal_tolerance_sweep
+  trials_per_condition: 5
+
+goal_checker:
+  yaw_goal_tolerance: 0.25
+
+  xy_goal_tolerances:
+    - label: baseline_25cm
+      value: 0.25
+
+    - label: xy_10cm
+      value: 0.10
+
+    - label: xy_5cm
+      value: 0.05
+
+
+# 최초 실험 시작 시 /initialpose에 사용
+initial_localization:
+  position_stddev_m: 0.05
+  yaw_stddev_deg: 5.0
+  settle_sec: 1.0
+
+
+# GOAL -> START 자동 복귀 전용
+return_to_start:
+  enabled: true
+
+  xy_goal_tolerance: 0.05
+  yaw_goal_tolerance: 0.05
+
+  # 전체 실험 마지막 Trial 종료 후에도
+  # START로 돌아오게 하려면 true
+  return_after_final_trial: false
+
+
+execution:
+  verify_parameters: true
+  restore_original_parameters: true
