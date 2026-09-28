@@ -77,7 +77,7 @@ def generate_launch_description():
     # 2. Nav2
     nav2_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(nav2_dir, 'launch', 'navigation2.launch.py')
+            os.path.join(nav2_dir, 'launch', 'navigation2_robot.launch.py')
         ),
         launch_arguments={
             'map': map_yaml_file,
