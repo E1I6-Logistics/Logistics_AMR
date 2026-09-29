@@ -15,9 +15,9 @@ def generate_launch_description():
     # 계정명 기반 초기 위치 설정
     username = os.environ.get('USER', 'default')
     initial_points = {
-        '1': ['0.0', '0.0', '0.0'],
-        '2': ['1.0', '0.5', '1.57'],
-        '3': ['2.0', '-0.5', '-1.57'],
+        '1': ['-0.2641', '0.3367', '0.1327'],
+        '2': ['-0.2653', '-0.0186', '0.1327'],
+        '3': ['-0.2653', '-0.4242', '0.1327'],
     }
     last_char = username[-1] if username else ''
     init_point = initial_points.get(last_char, ['0.0', '0.0', '0.0'])
