@@ -1,0 +1,53 @@
+# Goal
+int32 marker_id
+
+bool publish_tf false
+float32 timeout_sec 10.0
+int32 required_samples 15
+
+float32 outlier_z_max 0.15
+float32 outlier_tilt_deg 25.0
+bool check_yaw true
+float32 expected_base_yaw_deg -90.0
+float32 yaw_tolerance_deg 4.0
+
+---
+# Result
+int32 RESULT_SUCCESS=0
+int32 RESULT_TIMEOUT=1
+int32 RESULT_CANCELED=2
+int32 RESULT_MARKER_LOST=3
+int32 RESULT_INVALID_GOAL=4
+int32 RESULT_NO_ODOM_TF=5
+int32 RESULT_UNSTABLE_SAMPLES=6
+
+bool success
+int32 result_code
+string message
+
+float32 map_base_x
+float32 map_base_y
+float32 map_base_yaw_deg
+
+float32 map_odom_x
+float32 map_odom_y
+float32 map_odom_yaw_deg
+
+int32 accepted_samples
+int32 rejected_samples
+float32 map_base_xy_std
+float32 map_base_yaw_std_deg
+
+---
+# Feedback
+string state
+bool marker_visible
+
+int32 accepted_samples
+int32 rejected_samples
+
+float32 latest_map_base_x
+float32 latest_map_base_y
+float32 latest_map_base_yaw_deg
+
+float32 latest_yaw_error_deg
