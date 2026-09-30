@@ -19,7 +19,7 @@ class LogitlePosePublisher(Node):
 
         self.declare_parameter('target_frame', 'map')
         self.declare_parameter('source_frame', 'base_footprint')
-        self.declare_parameter('publish_rate_hz', 10.0)
+        self.declare_parameter('publish_rate_hz', 5.0)
         self.declare_parameter('topic_name', 'logitle_pose')
 
         self.target_frame = (
