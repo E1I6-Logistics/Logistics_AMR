@@ -22,19 +22,19 @@ frame_id: map
 
 markers:
   - id: 24
-    x: 1.7943385363
-    y: -0.3999184167
-    z: 0.105
+    x: 0.9685766435
+    y: -0.6782363343
+    z: 0.142
     yaw_deg: 90.0
     roll_deg: 0.0
-    size: 0.0395
-    note: "6번 좌표 기준 왼쪽(map +X) 약 20cm 새 위치 / corrector 실험 기준 중심 높이 0.105m"
+    size: 0.0400
+    note: "logitle_route 5번 좌표 기준 중심 왼쪽(map +X) 16.0cm, 벽 방향(map -Y) 40.5cm / 아래 변 높이 12.2cm + 4.0cm marker size/2"
 
   - id: 25
-    x: 2.0093385363
-    y: -0.3999184167
-    z: 0.12475
+    x: 1.7693385363
+    y: -0.6699184167
+    z: 0.142
     yaw_deg: 90.0
     roll_deg: 0.0
-    size: 0.0395
-    note: "6번 좌표 기준 왼쪽 41.5cm, 앞쪽 벽 13.5cm / 높이는 마커 아래쪽 끝 10.5cm 실측 + 마커 크기 절반(1.975cm) 보정한 중심 높이"
+    size: 0.0400
+    note: "logitle_route 6번 좌표 기준 중심 왼쪽(map +X) 17.5cm, 벽 방향(map -Y) 40.5cm / 아래 변 높이 12.2cm + 4.0cm marker size/2"

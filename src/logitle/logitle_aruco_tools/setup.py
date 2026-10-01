@@ -24,6 +24,7 @@ setup(
         "console_scripts": [
             "logitle_aruco_pose_viewer = logitle_aruco_tools.logitle_aruco_pose_viewer:main",
             "logitle_aruco_auto_align = logitle_aruco_tools.logitle_aruco_auto_align:main",
+            "logitle_align_and_correct_action_server = logitle_aruco_tools.logitle_align_and_correct_action_server:main",
             "logitle_aruco_pose_corrector_action_server = logitle_aruco_tools.logitle_aruco_pose_corrector_action_server:main",
             "logitle_aruco_tf_corrector = logitle_aruco_tools.logitle_aruco_tf_corrector:main",
             "logitle_tf_continuity_monitor = logitle_aruco_tools.logitle_tf_continuity_monitor:main",

@@ -47,6 +47,33 @@ ros2 launch logitle_aruco_tools logitle_aruco_auto_align.launch.py
 ros2 launch logitle_aruco_tools logitle_aruco_auto_align.launch.py enable_motion:=true
 ```
 
+## Pickup Alignment And Pose Correction
+
+5번/6번 노드처럼 로봇팔 앞 작업 위치에 도착한 뒤, 마커 기준으로 미세 정렬하고 이어서 pose correction까지 수행할 때 사용합니다.
+
+```bash
+ros2 launch logitle_aruco_tools logitle_aruco_align_and_correct.launch.py
+```
+
+관제 호출 예시:
+
+```bash
+ros2 action send_goal /aruco_align_and_correct logitle_aruco_msgs/action/AlignAndCorrectWithAruco \
+"{marker_id: 24, apply_correction: true}" \
+--feedback
+```
+
+동작 순서:
+
+```text
+Nav2로 5번/6번 노드 근처 이동
+-> ArUco 마커 기준으로 전진/후진 및 회전 미세 정렬
+-> CorrectPoseWithAruco 호출
+-> /initialpose로 AMCL/Nav2 위치 보정
+```
+
+기본 정렬 목표는 `target_z=0.32m`, `x_tolerance=0.025m`, `z_tolerance=0.035m`입니다. 마커가 보이는 범위 안에서만 정렬할 수 있으며, pose가 끊기면 즉시 정지합니다.
+
 ## Pose Correction Action
 
 관제 연동은 `/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_link` pose를 계산합니다.

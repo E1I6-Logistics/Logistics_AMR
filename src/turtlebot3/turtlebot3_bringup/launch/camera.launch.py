@@ -15,6 +15,8 @@
 # limitations under the License.
 
 
+import os
+
 from ament_index_python.resources import has_resource
 
 from launch.actions import DeclareLaunchArgument
@@ -79,6 +81,17 @@ def generate_launch_description() -> LaunchDescription:
         description='Camera image height'
     )
 
+    camera_info_url_name = 'camera_info_url'
+    camera_info_url_default = 'file://' + os.path.expanduser(
+        '~/aruco_test/imx219_640x480.yaml'
+    )
+    camera_info_url_param = LaunchConfiguration(camera_info_url_name)
+    camera_info_url_launch_arg = DeclareLaunchArgument(
+        camera_info_url_name,
+        default_value=camera_info_url_default,
+        description='Camera calibration YAML URL (file://... or package://...)'
+    )
+
     composable_nodes = [
         ComposableNode(
             package='camera_ros',
@@ -89,6 +102,7 @@ def generate_launch_description() -> LaunchDescription:
                 'width': width_param,
                 'height': height_param,
                 'format': format_param,
+                'camera_info_url': camera_info_url_param,
             }],
             extra_arguments=[{'use_intra_process_comms': True}],
         ),
@@ -119,5 +133,6 @@ def generate_launch_description() -> LaunchDescription:
         use_image_view_launch_arg,
         width_launch_arg,
         height_launch_arg,
+        camera_info_url_launch_arg,
         container,
     ])
