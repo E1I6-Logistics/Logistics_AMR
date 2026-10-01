@@ -134,7 +134,7 @@ class ArucoPoseViewer(Node):
         shape = (msg.width, msg.height)
         if shape != self.camera_info_shape:
             self.camera_info_shape = shape
-            print(f"camera_info {msg.width}x{msg.height}")
+            self.get_logger().info(f"camera_info {msg.width}x{msg.height}")
 
     def image_cb(self, msg):
         if self.camera_matrix is None:
@@ -236,7 +236,7 @@ class ArucoPoseViewer(Node):
         ], dtype=np.float32)
         self.dist_coeffs = np.zeros(5, dtype=np.float32)
         self.camera_info_shape = (width, height)
-        print(
+        self.get_logger().info(
             "using approximate camera_info "
             f"{width}x{height} fx={fx:.1f} fy={fy:.1f} "
             f"cx={cx:.1f} cy={cy:.1f}; calibrate camera for final TF"
@@ -245,7 +245,7 @@ class ArucoPoseViewer(Node):
     def _throttled_print(self, text):
         now = time.time()
         if now - self.last_print >= self.args.print_period:
-            print(text)
+            self.get_logger().info(text)
             self.last_print = now
 
     def _show_or_save(self, frame):
