@@ -10,7 +10,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from rcl_interfaces.msg import SetParametersResult
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import TwistStamped, PoseStamped
 from sensor_msgs.msg import LaserScan
 
 import tf2_ros
@@ -24,7 +24,7 @@ from turtlebot3_my_msg.action import PrecisionDock
 class DockingState(Enum):
     INIT = 0               # 점군 수신 대기 및 도크 파라미터 초기화
     ICP_APPROACH = 1       # 1차 도킹: ICP 기반 정밀 후진 진입
-    ALIGN_YAW = 2          # 2차 정렬: 오도메트리 TF 기반 최종 Yaw 0.0 정렬
+    ALIGN_YAW = 2          # 2차 정렬: logitle_pose(map 기준) 기반 최종 Yaw 정렬
     COMPLETED = 3          # 도킹 및 정렬 성공 완료
     FAILED = 4             # 도킹 실패/중단
 
@@ -163,23 +163,42 @@ class PrecisionDockingServer(Node):
         self.declare_parameter('blind_spot_dist', 0.20)
         self.declare_parameter('heading_align_deg', 15.0)
 
-        # 최종 Yaw 정렬 파라미터
+        # 최종 Yaw 정렬 파라미터 (logitle_pose / map 기준)
         self.declare_parameter('final_target_yaw_deg', 0.0)      # 최종 목표 Yaw (deg)
         self.declare_parameter('final_yaw_tolerance_deg', 0.1)   # 허용 각도 오차 (deg)
 
+        # logitle_pose 연동 관련 파라미터
+        self.declare_parameter('pose_topic', 'logitle_pose')
+        self.declare_parameter('use_logitle_pose_topic', True)
+        self.declare_parameter('global_frame', 'map')
+        self.declare_parameter('base_frame', 'base_footprint')
+
         self.update_parameters()
         self.add_on_set_parameters_callback(self.parameter_callback)
+
+        # /logitle_pose 토픽 구독
+        self.latest_logitle_pose = None
+        self.pose_sub = self.create_subscription(
+            PoseStamped,
+            self.pose_topic,
+            self.logitle_pose_callback,
+            10,
+            callback_group=self.cb_group
+        )
 
         self.latest_source_pts = None
 
         self.linear_pid = PID(p=0.2, i=0.2, d=0.05, out_min=-0.6, out_max=0.03)
         self.angular_pid = PID(p=1, i=0.5, d=0.20, out_min=-0.12, out_max=0.35)
         self.final_yaw_pid = PID(p=0.8, i=0.0, d=0.10, out_min=-0.12, out_max=0.25)
-        
 
         self.dist_tolerance = 0.001
 
-        self.get_logger().info('2단계(ICP -> Odom Yaw 정렬) 정밀 도킹 서버 준비 완료.')
+        self.get_logger().info('2단계(ICP -> logitle_pose Yaw 정렬) 정밀 도킹 서버 준비 완료.')
+
+    def logitle_pose_callback(self, msg: PoseStamped):
+        """/logitle_pose 토픽 콜백: 최신 글로벌 포즈 갱신"""
+        self.latest_logitle_pose = msg
 
     def update_parameters(self):
         self.charger_width = self.get_parameter('charger_width').value
@@ -194,6 +213,11 @@ class PrecisionDockingServer(Node):
         self.heading_align_deg = self.get_parameter('heading_align_deg').value
         self.final_target_yaw_rad = math.radians(self.get_parameter('final_target_yaw_deg').value)
         self.final_yaw_tolerance_rad = math.radians(self.get_parameter('final_yaw_tolerance_deg').value)
+
+        self.pose_topic = self.get_parameter('pose_topic').value
+        self.use_logitle_pose_topic = self.get_parameter('use_logitle_pose_topic').value
+        self.global_frame = self.get_parameter('global_frame').value
+        self.base_frame = self.get_parameter('base_frame').value
 
     def parameter_callback(self, params):
         for param in params:
@@ -258,6 +282,19 @@ class PrecisionDockingServer(Node):
             self.latest_source_pts = np.column_stack((roi_xs, roi_ys)).astype(np.float64)
         else:
             self.latest_source_pts = None
+
+    def get_current_logitle_yaw(self) -> float:
+        """
+        logitle_pose 토픽(/logitle_pose) 또는 TF(map -> base_footprint)로부터
+        글로벌 지도(map) 기준 로봇의 현재 Yaw 각도를 계산합니다.
+        """
+        if self.use_logitle_pose_topic and self.latest_logitle_pose is not None:
+            q = self.latest_logitle_pose.pose.orientation
+            return get_yaw_from_quaternion(q)
+
+        # 토픽이 아직 수신되지 않았거나 비활성화된 경우 TF에서 직접 조회 (fallback)
+        t = self.tf_buffer.lookup_transform(self.global_frame, self.base_frame, rp.time.Time())
+        return get_yaw_from_quaternion(t.transform.rotation)
 
     def get_current_odom_yaw(self) -> float:
         """TF 버퍼에서 odom -> base_link Yaw 각도를 순수 math 함수로 추출합니다."""
@@ -422,28 +459,41 @@ class PrecisionDockingServer(Node):
                 self.publish_cmd_vel(v_cmd, w_cmd)
 
             # -------------------------------------------------------------
-            # [STATE 2: ALIGN_YAW] 2차 정렬 (순수 math 기반 오도메트리 Yaw 정렬)
+            # [STATE 2: ALIGN_YAW] 2차 정렬 (logitle_pose / map 기준 최종 Yaw 정렬)
             # -------------------------------------------------------------
             elif state == DockingState.ALIGN_YAW:
                 try:
-                    current_odom_yaw = self.get_current_odom_yaw()
+                    current_yaw = self.get_current_logitle_yaw()
                 except Exception as e:
-                    self.get_logger().warn(f'TF 룩업 대기 중: {e}')
+                    self.get_logger().warn(f'logitle_pose / TF 룩업 대기 중: {e}')
                     self.publish_stop()
                     rate.sleep()
                     continue
 
-                yaw_error = normalize_angle(self.final_target_yaw_rad - current_odom_yaw)
+                # 목표 Yaw 산출: target_pose orientation 지정 시 우선 사용, 미지정 시 파라미터 값 사용
+                req_ori = goal_handle.request.target_pose.pose.orientation
+                norm_q = req_ori.x**2 + req_ori.y**2 + req_ori.z**2 + req_ori.w**2
+                if norm_q > 0.5:
+                    target_yaw = get_yaw_from_quaternion(req_ori)
+                else:
+                    target_yaw = self.final_target_yaw_rad
+
+                yaw_error = normalize_angle(target_yaw - current_yaw)
 
                 feedback_msg.distance_remaining = 0.0
                 feedback_msg.angle_remaining = float(yaw_error)
                 goal_handle.publish_feedback(feedback_msg)
 
                 if abs(yaw_error) <= self.final_yaw_tolerance_rad:
-                    self.get_logger().info(f'최종 정렬 완료! 오차: {math.degrees(yaw_error):.2f}°')
+                    self.get_logger().info(
+                        f'logitle_pose 기준 최종 정렬 완료! 오차: {math.degrees(yaw_error):.2f}° '
+                        f'(현재: {math.degrees(current_yaw):.2f}°, 목표: {math.degrees(target_yaw):.2f}°)'
+                    )
                     self.publish_stop()
                     state = DockingState.COMPLETED
-                    success_message = "Successfully docked and aligned yaw to 0.0"
+                    success_message = (
+                        f"Successfully docked and aligned to {math.degrees(target_yaw):.1f} deg based on logitle_pose"
+                    )
                     continue
 
                 w_out = self.final_yaw_pid.update(yaw_error, dt)
