@@ -135,7 +135,7 @@ controller_server:
 
       # 2. 일정한 제자리 회전 제어
       use_rotate_to_heading: true
-      rotate_to_heading_min_angle: 0.35             # 약 20도 이상 헤딩 오차 시 제자리 회전
+      rotate_to_heading_min_angle: 0.35         # 약 20도 이상 헤딩 오차 시 제자리 회전
       rotate_to_heading_angular_vel:  0.65      # 회전 각속도 고정
       max_angular_accel: 1.5                    # 가속도 상한을 낮춰 일정한 템포 유지
 
@@ -151,6 +151,11 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
+      filters: ["keepout_filter"]
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"  
+        enabled: True
+        filter_info_topic: "/costmap_filter_info"    
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: odom
@@ -202,6 +207,11 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
+      filters: ["keepout_filter"]
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"  
+        enabled: True
+        filter_info_topic: "/costmap_filter_info"    
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
