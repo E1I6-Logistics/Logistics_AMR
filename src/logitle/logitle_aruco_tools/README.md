@@ -171,6 +171,8 @@ Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 �
 제어는 벽 방향과 위치를 한 번에 합산하지 않습니다. 먼저 벽 방향 오차가 허용 범위 안에
 들어올 때까지 회전하고, 이후 x/z 위치를 보정합니다. 이 순차 제어로 회전과 전진이 서로
 간섭해 오차가 커지는 현상을 줄입니다.
+OpenCV ArUco 검출은 기본 10Hz로 제한하고 카메라 스트림 자체는 유지합니다.
+필요하면 `detection_rate_hz:=15.0`으로 높일 수 있습니다.
 
 현장 측정값을 기준으로 marker별 정렬 preset을 코드에 포함합니다. 관제가 `target_x`, `target_z`,
 `expected_base_yaw_deg`를 생략하면 아래 preset이 적용됩니다. Action 정의의 `target_x=0.0`,

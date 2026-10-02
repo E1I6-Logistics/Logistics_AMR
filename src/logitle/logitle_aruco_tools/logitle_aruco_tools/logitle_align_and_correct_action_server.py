@@ -196,6 +196,8 @@ class AlignAndCorrectActionServer(Node):
         self.camera_matrix = None
         self.dist_coeffs = None
         self.camera_info_shape = None
+        self.detection_period_sec = 1.0 / max(float(args.detection_rate_hz), 1.0)
+        self.last_detection_time = 0.0
         self.markers = load_marker_map(args.marker_map)
         if args.pose_source == "camera":
             dictionary_id = ARUCO_DICTS[args.dictionary]
@@ -724,6 +726,7 @@ class AlignAndCorrectActionServer(Node):
     def start_pose_input(self, marker_id):
         with self.pose_lock:
             self.latest_pose = None
+        self.last_detection_time = 0.0
 
         if self.args.pose_source == "topic":
             topic = self.pose_topic_for_marker(marker_id)
@@ -878,6 +881,11 @@ class AlignAndCorrectActionServer(Node):
         if marker_id is None:
             return
 
+        now = time.monotonic()
+        if now - self.last_detection_time < self.detection_period_sec:
+            return
+        self.last_detection_time = now
+
         if self.camera_matrix is None:
             if self.args.approx_camera_info:
                 self.set_approx_camera_info(msg.width, msg.height)
@@ -1011,6 +1019,7 @@ def parse_args():
     parser.add_argument("--camera-launch-file", default="camera.launch.py")
     parser.add_argument("--camera-info-url", default="")
     parser.add_argument("--camera-shutdown-timeout-sec", type=float, default=3.0)
+    parser.add_argument("--detection-rate-hz", type=float, default=10.0)
     parser.add_argument("--dictionary", choices=sorted(ARUCO_DICTS), default="5X5_1000")
     parser.add_argument(
         "--pose-topic-template",

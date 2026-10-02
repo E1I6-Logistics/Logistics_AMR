@@ -33,6 +33,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
         DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
+        DeclareLaunchArgument("detection_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("dictionary", default_value="5X5_1000"),
         DeclareLaunchArgument("marker_id", default_value="25"),
         DeclareLaunchArgument("marker_size", default_value="0.04"),
@@ -77,6 +78,8 @@ def generate_launch_description():
                 LaunchConfiguration("image_topic"),
                 "--camera-info-topic",
                 LaunchConfiguration("camera_info_topic"),
+                "--detection-rate-hz",
+                LaunchConfiguration("detection_rate_hz"),
                 "--dictionary",
                 LaunchConfiguration("dictionary"),
                 "--marker-id",
