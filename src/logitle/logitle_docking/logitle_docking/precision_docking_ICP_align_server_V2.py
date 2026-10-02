@@ -23,10 +23,11 @@ from turtlebot3_my_msg.action import PrecisionDock
 # ---------------------------------------------------------
 class DockingState(Enum):
     INIT = 0               # 점군 수신 대기 및 도크 파라미터 초기화
-    ICP_APPROACH = 1       # 1차 도킹: ICP 기반 정밀 후진 진입
-    ALIGN_YAW = 2          # 2차 정렬: logitle_pose(map 기준) 기반 최종 Yaw 정렬
-    COMPLETED = 3          # 도킹 및 정렬 성공 완료
-    FAILED = 4             # 도킹 실패/중단
+    CENTER_ALIGN = 1       # 0단계: 도킹스테이션 중심 라인(Y=0) 및 헤딩 진입 정렬
+    ICP_APPROACH = 2       # 1차 도킹: 중앙 라인 기반 ICP 정밀 후진 진입
+    ALIGN_YAW = 3          # 2차 정렬: logitle_pose(map 기준) 기반 최종 Yaw 정렬
+    COMPLETED = 4          # 도킹 및 정렬 성공 완료
+    FAILED = 5             # 도킹 실패/중단
 
 
 def normalize_angle(angle: float) -> float:
@@ -106,7 +107,6 @@ class PID:
         derivative = (error - self.previous_err) / dt
         output = (self.p * error) + (self.i * self.integral) + (self.d * derivative)
 
-        # Anti-windup clamping
         if output > self.out_max:
             output = self.out_max
             self.integral -= error * dt
@@ -127,10 +127,8 @@ class PrecisionDockingServer(Node):
         super().__init__('precision_docking_server')
         self.cb_group = ReentrantCallbackGroup()
 
-        # 도킹 액션 진행 여부 플래그
         self.is_docking_active = False
 
-        # TF2 버퍼 및 리스너 초기화
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -156,19 +154,24 @@ class PrecisionDockingServer(Node):
         self.declare_parameter('wing_angle_deg', 45.0)
         self.declare_parameter('robot_rear_length', 0.25)
 
+        # 중앙 라인 사전 정렬(Pre-dock Center Align) 파라미터
+        self.declare_parameter('predock_distance', 0.50)           # 중앙 정렬을 수행할 전방 대기 거리 (m)
+        self.declare_parameter('center_y_tolerance', 0.02)         # 중심선 허용 횡방향 오차 (m)
+        self.declare_parameter('center_yaw_tolerance_deg', 3.0)    # 중심선 허용 각도 오차 (deg)
+
         # ROI 및 안전 거리
-        self.declare_parameter('roi_x_min', -0.8)
+        self.declare_parameter('roi_x_min', -1.2)                  # 사전 대기점 관측을 위해 탐색 범위 확장
         self.declare_parameter('roi_x_max', -0.15)
-        self.declare_parameter('roi_y_limit', 0.20)
+        self.declare_parameter('roi_y_limit', 0.35)
         self.declare_parameter('safety_stop_dist', 0.01)
         self.declare_parameter('blind_spot_dist', 0.20)
         self.declare_parameter('heading_align_deg', 15.0)
 
-        # 최종 Yaw 정렬 파라미터 (logitle_pose / map 기준)
+        # 최종 Yaw 정렬 파라미터
         self.declare_parameter('final_target_yaw_deg', 0.0)
         self.declare_parameter('final_yaw_tolerance_deg', 0.1)
 
-        # logitle_pose 연동 관련 파라미터
+        # 포즈 및 TF 파라미터
         self.declare_parameter('pose_topic', 'logitle_pose')
         self.declare_parameter('use_logitle_pose_topic', True)
         self.declare_parameter('global_frame', 'map')
@@ -188,12 +191,14 @@ class PrecisionDockingServer(Node):
 
         self.latest_source_pts = None
 
+        # PID 컨트롤러 설정
         self.linear_pid = PID(p=0.2, i=0.2, d=0.05, out_min=-0.6, out_max=0.03)
         self.angular_pid = PID(p=1.0, i=0.5, d=0.20, out_min=-0.12, out_max=0.35)
+        self.center_y_pid = PID(p=1.2, i=0.0, d=0.15, out_min=-0.35, out_max=0.35)
         self.final_yaw_pid = PID(p=0.8, i=0.0, d=0.10, out_min=-0.12, out_max=0.25)
 
         self.dist_tolerance = 0.001
-        self.get_logger().info('정밀 도킹 액션 서버 초기화 완료. 액션 요청 대기 중...')
+        self.get_logger().info('중앙 라인 정렬 지원 정밀 도킹 서버 초기화 완료.')
 
     def logitle_pose_callback(self, msg: PoseStamped):
         if not self.is_docking_active:
@@ -205,6 +210,11 @@ class PrecisionDockingServer(Node):
         self.wing_length = self.get_parameter('wing_length').value
         self.wing_angle_deg = self.get_parameter('wing_angle_deg').value
         self.robot_rear_length = self.get_parameter('robot_rear_length').value
+
+        self.predock_distance = self.get_parameter('predock_distance').value
+        self.center_y_tolerance = self.get_parameter('center_y_tolerance').value
+        self.center_yaw_tolerance_rad = math.radians(self.get_parameter('center_yaw_tolerance_deg').value)
+
         self.roi_x_min = self.get_parameter('roi_x_min').value
         self.roi_x_max = self.get_parameter('roi_x_max').value
         self.roi_y_limit = self.get_parameter('roi_y_limit').value
@@ -260,7 +270,6 @@ class PrecisionDockingServer(Node):
         return est_charger_w, est_wing_len, est_angle_deg
 
     def scan_callback(self, msg: LaserScan):
-        # 액션 요청이 활성화되지 않은 상태에서는 점군 연산 skip
         if not self.is_docking_active:
             return
 
@@ -271,7 +280,7 @@ class PrecisionDockingServer(Node):
         ranges = ranges[valid_mask]
         angles = angles[valid_mask]
 
-        rear_fov_mask = np.abs(angles) >= math.radians(110.0)
+        rear_fov_mask = np.abs(angles) >= math.radians(100.0)
         ranges = ranges[rear_fov_mask]
         angles = angles[rear_fov_mask]
 
@@ -296,9 +305,8 @@ class PrecisionDockingServer(Node):
         return get_yaw_from_quaternion(t.transform.rotation)
 
     def goal_callback(self, goal_request):
-        # 이미 다른 도킹 액션이 진행 중이면 새 요청 거절
         if self.is_docking_active:
-            self.get_logger().warn('이미 도킹 작업이 진행 중입니다. 새 요청 거부.')
+            self.get_logger().warn('이미 도킹 작업이 진행 중입니다. 새 요청을 거부합니다.')
             return GoalResponse.REJECT
 
         self.get_logger().info('도킹 액션 요청 수락')
@@ -320,15 +328,15 @@ class PrecisionDockingServer(Node):
         self.publish_cmd_vel(0.0, 0.0)
 
     def execute_callback(self, goal_handle):
-        # 1. 액션 활성화 플래그 및 이전 상태 초기화
         self.is_docking_active = True
         self.latest_source_pts = None
         self.latest_logitle_pose = None
         self.angular_pid.reset()
         self.linear_pid.reset()
+        self.center_y_pid.reset()
         self.final_yaw_pid.reset()
 
-        self.get_logger().info('도킹 시퀀스 가동 (상태 머신 시작)')
+        self.get_logger().info('도킹 시퀀스 가동 (중앙 라인 정렬 -> ICP 후진)')
         state = DockingState.INIT
 
         active_target_pts = None
@@ -353,7 +361,9 @@ class PrecisionDockingServer(Node):
                 dt = (current_time - last_time).nanoseconds / 1e9
                 last_time = current_time
 
-                # [STATE 0: INIT]
+                # -------------------------------------------------------------
+                # [STATE 0: INIT] 템플릿 생성 및 초기 위치 파악
+                # -------------------------------------------------------------
                 if state == DockingState.INIT:
                     if self.latest_source_pts is None:
                         self.publish_stop()
@@ -374,10 +384,76 @@ class PrecisionDockingServer(Node):
                     gap = req_pos.x if req_pos.x > 0.0 else safe_gap
                     active_target_pts = self.generate_v_funnel_target(w, l, ang, gap)
 
-                    self.get_logger().info('>> [상태 전이] INIT -> ICP_APPROACH (1차 도킹 후진)')
-                    state = DockingState.ICP_APPROACH
+                    self.get_logger().info('>> [상태 전이] INIT -> CENTER_ALIGN (도크 중심축 정렬 시작)')
+                    state = DockingState.CENTER_ALIGN
 
-                # [STATE 1: ICP_APPROACH]
+                # -------------------------------------------------------------
+                # [STATE 1: CENTER_ALIGN] 중앙 라인(Y=0) 및 후진 진입 헤딩 정렬
+                # -------------------------------------------------------------
+                elif state == DockingState.CENTER_ALIGN:
+                    if self.latest_source_pts is None:
+                        self.publish_stop()
+                        rate.sleep()
+                        continue
+
+                    # 1. 현재 도크의 상대 좌표 추정
+                    search_r = 1.5 if is_first_frame else 0.40
+                    current_transform, fitness, match_cnt = icp_2d(
+                        self.latest_source_pts, active_target_pts,
+                        initial_transform=current_transform, max_iterations=35, search_radius=search_r
+                    )
+
+                    if match_cnt < 10:
+                        self.publish_stop()
+                        rate.sleep()
+                        continue
+
+                    is_first_frame = False
+                    T = current_transform
+                    R_mat = T[:2, :2]
+                    t_vec = T[:2, 2]
+
+                    rel_pos = -R_mat.T @ t_vec
+                    rel_x, rel_y = rel_pos[0], rel_pos[1]
+                    rel_yaw = normalize_angle(-math.atan2(R_mat[1, 0], R_mat[0, 0]))
+
+                    # 2. 중심축(Y=0) 조향 오차 산출
+                    # lookahead 지점을 이용해 중앙선을 타도록 목표 방향 계산
+                    lookahead = 0.4
+                    target_heading_to_center = math.atan2(rel_y, lookahead)
+                    heading_err = normalize_angle(rel_yaw - target_heading_to_center)
+
+                    feedback_msg.distance_remaining = float(abs(rel_y))
+                    feedback_msg.angle_remaining = float(heading_err)
+                    goal_handle.publish_feedback(feedback_msg)
+
+                    # 3. 중앙 정렬 완료 판정: 횡방향 오차 < tolerance & 헤딩 오차 < tolerance
+                    if abs(rel_y) <= self.center_y_tolerance and abs(rel_yaw) <= self.center_yaw_tolerance_rad:
+                        self.get_logger().info(
+                            f'중심 라인 정렬 완료! (Y 오차: {rel_y*100:.1f}cm, 각도: {math.degrees(rel_yaw):.1f}°)'
+                        )
+                        self.publish_stop()
+                        self.get_logger().info('>> [상태 전이] CENTER_ALIGN -> ICP_APPROACH (정밀 후진 시작)')
+                        state = DockingState.ICP_APPROACH
+                        continue
+
+                    # 4. 중앙 정렬 제어 입력 생성 (제자리 회전 및 저속 접근 조향)
+                    if abs(heading_err) > math.radians(20.0):
+                        v_cmd = 0.0
+                        w_cmd = float(np.clip(self.angular_pid.update(heading_err, dt), -0.25, 0.25))
+                    else:
+                        # 중심선 방향으로 부드럽게 감속 접근
+                        v_cmd = -0.015 if abs(rel_y) > self.center_y_tolerance else 0.0
+                        w_cmd = float(np.clip(self.center_y_pid.update(heading_err, dt), -0.20, 0.20))
+
+                    if 0.0 < abs(w_cmd) < 0.03:
+                        w_cmd = 0.03 if w_cmd > 0 else -0.03
+
+                    self.publish_cmd_vel(v_cmd, w_cmd)
+
+                # -------------------------------------------------------------
+                # [STATE 2: ICP_APPROACH] 중앙 라인을 따라 1차 정밀 후진 진입
+                # -------------------------------------------------------------
                 elif state == DockingState.ICP_APPROACH:
                     if self.latest_source_pts is None:
                         self.publish_stop()
@@ -397,10 +473,9 @@ class PrecisionDockingServer(Node):
                             state = DockingState.ALIGN_YAW
                             continue
 
-                    search_r = 1.5 if is_first_frame else 0.35
                     current_transform, fitness, match_cnt = icp_2d(
                         self.latest_source_pts, active_target_pts,
-                        initial_transform=current_transform, max_iterations=35, search_radius=search_r
+                        initial_transform=current_transform, max_iterations=35, search_radius=0.35
                     )
 
                     if match_cnt < 10:
@@ -415,8 +490,6 @@ class PrecisionDockingServer(Node):
                         continue
 
                     icp_fail_count = 0
-                    is_first_frame = False
-
                     T = current_transform
                     R_mat = T[:2, :2]
                     t_vec = T[:2, 2]
@@ -459,7 +532,9 @@ class PrecisionDockingServer(Node):
 
                     self.publish_cmd_vel(v_cmd, w_cmd)
 
-                # [STATE 2: ALIGN_YAW]
+                # -------------------------------------------------------------
+                # [STATE 3: ALIGN_YAW] 최종 Yaw 정렬
+                # -------------------------------------------------------------
                 elif state == DockingState.ALIGN_YAW:
                     try:
                         current_yaw = self.get_current_logitle_yaw()
@@ -484,8 +559,7 @@ class PrecisionDockingServer(Node):
 
                     if abs(yaw_error) <= self.final_yaw_tolerance_rad:
                         self.get_logger().info(
-                            f'최종 정렬 완료! 오차: {math.degrees(yaw_error):.2f}° '
-                            f'(현재: {math.degrees(current_yaw):.2f}°, 목표: {math.degrees(target_yaw):.2f}°)'
+                            f'최종 정렬 완료! 오차: {math.degrees(yaw_error):.2f}°'
                         )
                         self.publish_stop()
                         state = DockingState.COMPLETED
@@ -502,7 +576,9 @@ class PrecisionDockingServer(Node):
 
                     self.publish_cmd_vel(0.0, w_cmd)
 
-                # [STATE 3: COMPLETED]
+                # -------------------------------------------------------------
+                # [STATE 4: COMPLETED] 완료
+                # -------------------------------------------------------------
                 elif state == DockingState.COMPLETED:
                     self.publish_stop()
                     goal_handle.succeed()
@@ -515,7 +591,6 @@ class PrecisionDockingServer(Node):
             return PrecisionDock.Result(success=False, message="Aborted")
 
         finally:
-            # 성공/실패/예외 어떤 상황에서도 정지 명령 및 플래그 해제
             self.publish_stop()
             self.is_docking_active = False
 
