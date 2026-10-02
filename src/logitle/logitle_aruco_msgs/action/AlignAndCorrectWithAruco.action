@@ -14,6 +14,7 @@ float32 stable_sec 0.4
 
 float32 max_linear 0.030
 float32 max_angular 0.04
+float32 min_angular 0.020
 float32 kx 0.8
 float32 kz 1.2
 bool check_wall_yaw true
