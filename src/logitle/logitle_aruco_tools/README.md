@@ -166,6 +166,10 @@ Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 �
 `expected_base_yaw_deg=-87deg` preset을 사용합니다.
 공통 정렬 기준은 `x_tolerance=0.005m`, `z_tolerance=0.007m`,
 `wall_yaw_tolerance_deg=2deg`, `yaw_tolerance_deg=3deg`입니다.
+회전 제어는 `max_angular=0.04rad/s`, `min_angular=0.020rad/s`를 사용합니다.
+계산된 회전 명령이 0이 아닌 경우에는 모터 데드밴드에 걸리지 않도록 최소값을 적용하고,
+최대값은 계속 `0.04rad/s`로 제한합니다. 이 값은 현재의 임시 피드백 제어용이며,
+추후 PID 제어로 전환할 때 재튜닝 대상입니다.
 `target_x`는 카메라 기준에서 마커가 보이는 정상 위치이며, 마커를 화면 정중앙(`x=0`)으로
 맞추는 값이 아닙니다. 마커가 보이는 범위 안에서만 정렬할 수 있으며, pose가 끊기면 즉시 정지합니다.
 제어는 벽 방향과 위치를 한 번에 합산하지 않습니다. 먼저 벽 방향 오차가 허용 범위 안에
@@ -173,6 +177,18 @@ Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 �
 간섭해 오차가 커지는 현상을 줄입니다.
 OpenCV ArUco 검출은 기본 10Hz로 제한하고 카메라 스트림 자체는 유지합니다.
 필요하면 `detection_rate_hz:=15.0`으로 높일 수 있습니다.
+
+실주행 전에 다음 항목을 확인합니다.
+
+```bash
+ros2 topic info /cmd_vel -v
+ros2 node list | grep -E 'align|aruco'
+```
+
+정렬 중에는 의도한 Action 서버와 `/cmd_vel` 제어 발행자가 각각 하나인지 확인합니다.
+Nav2, 수동 조종 노드 또는 이전에 남은 Action 서버가 동시에 `/cmd_vel`을 발행하면
+정렬 명령이 덮어써질 수 있습니다. CPU 부하가 높은 경우에는 Nav2/도킹/pose viewer를
+분리한 가벼운 구성으로 먼저 동작을 확인합니다.
 
 현장 측정값을 기준으로 marker별 정렬 preset을 코드에 포함합니다. 관제가 `target_x`, `target_z`,
 `expected_base_yaw_deg`를 생략하면 아래 preset이 적용됩니다. Action 정의의 `target_x=0.0`,

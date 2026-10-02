@@ -90,6 +90,14 @@ def clamp(value, low, high):
     return max(low, min(high, value))
 
 
+def clamp_min_magnitude(value, minimum, low, high):
+    """Clamp a non-zero command while keeping it above motor deadband."""
+    value = clamp(value, low, high)
+    if value == 0.0:
+        return 0.0
+    return math.copysign(max(abs(value), minimum), value)
+
+
 def positive_or_default(value, default):
     return float(value) if float(value) > 0.0 else float(default)
 
@@ -361,6 +369,7 @@ class AlignAndCorrectActionServer(Node):
             "stable_sec": positive_or_default(goal.stable_sec, self.args.stable_sec),
             "max_linear": positive_or_default(goal.max_linear, self.args.max_linear),
             "max_angular": positive_or_default(goal.max_angular, self.args.max_angular),
+            "min_angular": positive_or_default(goal.min_angular, self.args.min_angular),
             "kx": positive_or_default(goal.kx, self.args.kx),
             "kz": positive_or_default(goal.kz, self.args.kz),
             "check_wall_yaw": bool(goal.check_wall_yaw),
@@ -387,6 +396,8 @@ class AlignAndCorrectActionServer(Node):
             and params["z_tolerance"] > 0.0
             and params["max_linear"] > 0.0
             and params["max_angular"] > 0.0
+            and params["min_angular"] > 0.0
+            and params["min_angular"] <= params["max_angular"]
         )
 
     def run_alignment(self, goal_handle, params):
@@ -558,15 +569,17 @@ class AlignAndCorrectActionServer(Node):
         # Turning toward the wall first prevents the two corrections from
         # fighting each other and keeps the marker in view while aligning.
         if wall_yaw_error != 0.0:
-            angular_z = clamp(
+            angular_z = clamp_min_magnitude(
                 -params["kyaw"] * wall_yaw_error,
+                params["min_angular"],
                 -params["max_angular"],
                 params["max_angular"],
             )
             return 0.0, angular_z, "aligning_wall_yaw", x_error, z_error, wall_yaw_error
 
-        angular_z = clamp(
+        angular_z = clamp_min_magnitude(
             -params["kx"] * x_error,
+            params["min_angular"],
             -params["max_angular"],
             params["max_angular"],
         )
@@ -1044,6 +1057,7 @@ def parse_args():
     parser.add_argument("--stable-sec", type=float, default=0.4)
     parser.add_argument("--max-linear", type=float, default=0.030)
     parser.add_argument("--max-angular", type=float, default=0.04)
+    parser.add_argument("--min-angular", type=float, default=0.020)
     parser.add_argument("--kx", type=float, default=0.8)
     parser.add_argument("--kz", type=float, default=1.2)
     parser.add_argument("--wall-yaw-tolerance-deg", type=float, default=2.0)
