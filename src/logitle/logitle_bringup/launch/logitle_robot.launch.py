@@ -32,7 +32,10 @@ def generate_launch_description():
         last_char,
         ['0.0', '0.0', '0.0']
     )
-    use_camera_default = 'true'
+    use_camera_default = 'false'
+    camera_info_url_default = 'file://' + os.path.expanduser(
+        '~/aruco_test/imx219_640x480.yaml'
+    )
 
     # ============================================================
     # Launch Configuration
@@ -42,6 +45,7 @@ def generate_launch_description():
     mask_yaml_file = LaunchConfiguration('mask')
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_camera = LaunchConfiguration('use_camera')
+    camera_info_url = LaunchConfiguration('camera_info_url')
     use_aruco = LaunchConfiguration('use_aruco')
     use_nav2 = LaunchConfiguration('use_nav2')
     use_logitle_pose = LaunchConfiguration('use_logitle_pose')
@@ -74,7 +78,13 @@ def generate_launch_description():
     declare_use_camera_cmd = DeclareLaunchArgument(
         'use_camera',
         default_value=use_camera_default,
-        description='Launch camera_ros camera node. Set false to disable camera.'
+        description='Launch camera_ros continuously. ArUco Action starts it on demand when false.'
+    )
+
+    declare_camera_info_url_cmd = DeclareLaunchArgument(
+        'camera_info_url',
+        default_value=camera_info_url_default,
+        description='Camera calibration YAML URL used by the camera and ArUco Action.'
     )
 
     declare_use_aruco_cmd = DeclareLaunchArgument(
@@ -159,6 +169,9 @@ def generate_launch_description():
                 'camera.launch.py'
             )
         ),
+        launch_arguments={
+            'camera_info_url': camera_info_url,
+        }.items(),
         condition=IfCondition(use_camera),
     )
 
@@ -249,7 +262,7 @@ def generate_launch_description():
     # 5. ArUco Alignment / Pose Correction
     #
     # Action servers only.
-    # Camera image processing starts when an Action goal is received.
+    # Camera is started by the ArUco Action only when a goal is received.
     # ============================================================
 
     aruco_align_and_correct_cmd = IncludeLaunchDescription(
@@ -260,6 +273,9 @@ def generate_launch_description():
                 'logitle_aruco_align_and_correct.launch.py'
             )
         ),
+        launch_arguments={
+            'camera_info_url': camera_info_url,
+        }.items(),
         condition=IfCondition(use_aruco),
     )
 
@@ -273,6 +289,7 @@ def generate_launch_description():
     ld.add_action(declare_map_yaml_cmd)
     ld.add_action(declare_use_sim_time_cmd)
     ld.add_action(declare_use_camera_cmd)
+    ld.add_action(declare_camera_info_url_cmd)
     ld.add_action(declare_use_aruco_cmd)
     ld.add_action(declare_use_nav2_cmd)
     ld.add_action(declare_use_logitle_pose_cmd)

@@ -70,14 +70,23 @@ ros2 launch logitle_bringup logitle_robot.launch.py use_aruco:=false
 ```
 
 `logitle_aruco_pose_viewer`는 포함하지 않습니다. 두 서버 모두 기본 `pose_source:=camera` 모드로 대기하며,
-Action goal이 들어온 동안에만 `/camera/image_raw`, `/camera/camera_info`를 구독해서 ArUco 검출을 수행합니다.
-goal이 끝나면 카메라 구독을 해제하므로, launch만 켜둔 상태에서는 정렬 제어와 ArUco 이미지 처리를 하지 않습니다.
+Action goal이 들어올 때 Action 서버가 `camera.launch.py`를 시작하고 `/camera/image_raw`,
+`/camera/camera_info`를 구독해서 ArUco 검출을 수행합니다. goal이 끝나면 Action 서버가 시작한
+카메라 프로세스와 구독을 함께 종료하므로, bringup만 켜둔 상태에서는 카메라 연산을 하지 않습니다.
 
 카메라가 연결된 로봇이면 robot1/2/3 모두 같은 구조로 사용할 수 있습니다.
-현재 `use_camera` 기본값은 robot1/2/3 모두 `true`입니다. 카메라를 끄고 싶을 때만 `use_camera:=false`를 전달합니다.
+`use_camera` 기본값은 `false`이며, 카메라는 ArUco Action 요청 시 자동으로 켜집니다.
+카메라를 계속 켜두고 pose viewer나 별도 검사를 할 때만 다음처럼 `use_camera:=true`를 전달합니다.
 
 ```bash
-ros2 launch logitle_bringup logitle_robot.launch.py use_camera:=false
+ros2 launch logitle_bringup logitle_robot.launch.py use_camera:=true
+```
+
+캘리브레이션 파일을 기본 경로가 아닌 `~/camera/`에 둔 경우에는 다음처럼 경로를 전달합니다.
+
+```bash
+ros2 launch logitle_bringup logitle_robot.launch.py \
+  camera_info_url:=file:///home/turtlebot3/camera/imx219_640x480.yaml
 ```
 
 현장 측정처럼 전체 운용 스택이 필요 없는 경우에는 필요한 노드만 켜서 부하를 줄입니다.
@@ -145,11 +154,11 @@ camera: /camera/image_raw, /camera/camera_info
 ```text
 Nav2로 5번/6번 노드 근처 이동
 -> 관제가 /aruco_align_and_correct Action goal 전송
--> Action 서버가 카메라 topic 구독 및 ArUco 검출 시작
+-> Action 서버가 카메라 프로세스를 시작하고 topic 구독 및 ArUco 검출 시작
 -> ArUco 마커 기준으로 전진/후진 및 회전 미세 정렬
 -> CorrectPoseWithAruco 호출
 -> /initialpose로 AMCL/Nav2 위치 보정
--> Action 종료 후 카메라 topic 구독 해제
+-> Action 종료 후 Action 서버가 시작한 카메라 프로세스와 topic 구독 해제
 ```
 
 Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 현장 측정 preset이 자동 적용됩니다.
