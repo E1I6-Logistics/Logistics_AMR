@@ -32,7 +32,7 @@ def generate_launch_description():
         last_char,
         ['0.0', '0.0', '0.0']
     )
-    use_camera_default = 'true' if last_char == '3' else 'false'
+    use_camera_default = 'true'
 
     # ============================================================
     # Launch Configuration
@@ -71,7 +71,7 @@ def generate_launch_description():
     declare_use_camera_cmd = DeclareLaunchArgument(
         'use_camera',
         default_value=use_camera_default,
-        description='Launch camera_ros camera node. Defaults to true on robot3.'
+        description='Launch camera_ros camera node. Set false to disable camera.'
     )
 
     declare_use_aruco_cmd = DeclareLaunchArgument(
