@@ -86,7 +86,7 @@ ros2 launch logitle_bringup logitle_robot.launch.py use_camera:=true
 
 ```bash
 ros2 launch logitle_bringup logitle_robot.launch.py \
-  camera_info_url:=file:///home/turtlebot3/camera/imx219_640x480.yaml
+  camera_info_url:=file:///home/turtlebot3/camera/imx219_320x240.yaml
 ```
 
 현장 측정처럼 전체 운용 스택이 필요 없는 경우에는 필요한 노드만 켜서 부하를 줄입니다.
