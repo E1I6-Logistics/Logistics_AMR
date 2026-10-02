@@ -53,11 +53,7 @@ except ImportError:
 
 
 def default_robot_namespace():
-    return {
-        "1": "tb3_0",
-        "2": "tb3_1",
-        "3": "tb3_2",
-    }.get(os.environ.get("USER", "")[-1:], "")
+    return ""
 
 
 def scoped_topic(namespace, name):
