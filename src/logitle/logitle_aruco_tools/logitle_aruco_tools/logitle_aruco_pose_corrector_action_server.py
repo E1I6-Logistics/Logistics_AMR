@@ -118,6 +118,8 @@ class ArucoPoseCorrectorActionServer(Node):
         self.camera_matrix = None
         self.dist_coeffs = None
         self.camera_info_shape = None
+        self.detection_period_sec = 1.0 / max(float(args.detection_rate_hz), 1.0)
+        self.last_detection_time = 0.0
 
         self.markers = load_marker_map(args.marker_map)
         self.validate_camera_mount_args(args)
@@ -496,6 +498,7 @@ class ArucoPoseCorrectorActionServer(Node):
     def start_pose_input(self, marker_id):
         with self.lock:
             self.latest_poses.pop(marker_id, None)
+        self.last_detection_time = 0.0
 
         if self.args.pose_source == "topic":
             self.ensure_pose_subscription(marker_id)
@@ -587,6 +590,11 @@ class ArucoPoseCorrectorActionServer(Node):
             marker_id = self.active_marker_id
         if marker_id is None:
             return
+
+        now = time.monotonic()
+        if now - self.last_detection_time < self.detection_period_sec:
+            return
+        self.last_detection_time = now
 
         if self.camera_matrix is None:
             if self.args.approx_camera_info:
@@ -839,6 +847,7 @@ def parse_args():
     )
     parser.add_argument("--image-topic", default="/camera/image_raw")
     parser.add_argument("--camera-info-topic", default="/camera/camera_info")
+    parser.add_argument("--detection-rate-hz", type=float, default=10.0)
     parser.add_argument("--dictionary", choices=sorted(ARUCO_DICTS), default="5X5_1000")
     parser.add_argument(
         "--pose-topic-template",
