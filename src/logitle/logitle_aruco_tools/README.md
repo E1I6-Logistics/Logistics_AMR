@@ -93,37 +93,30 @@ ros2 launch logitle_bringup logitle_robot.launch.py
 관제 호출 예시:
 
 ```bash
-ros2 action send_goal /tb3_2/aruco_align_and_correct logitle_aruco_msgs/action/AlignAndCorrectWithAruco \
+ros2 action send_goal /aruco_align_and_correct logitle_aruco_msgs/action/AlignAndCorrectWithAruco \
 "{marker_id: 25, apply_correction: true}" \
 --feedback
 ```
 
-ArUco Action 이름은 실행 계정명 마지막 숫자를 기준으로 자동 분리됩니다.
-`turtlebot1`은 `tb3_0`, `turtlebot2`는 `tb3_1`, `turtlebot3`는 `tb3_2`를 사용합니다.
-예를 들어 robot3에서는 Action이 `/tb3_2/aruco_align_and_correct`입니다.
+ArUco Action 이름과 로봇 내부 토픽/TF 이름은 robot1/2/3 모두 동일하게 사용합니다.
 
 실제 로봇 내부 제어/TF는 현재 bringup 구조에 맞춰 namespace 없이 사용합니다.
 
 ```text
+align/correct Action: /aruco_align_and_correct
+pose correction Action: /aruco_correct_pose
+pose topic: /aruco/id{marker_id}/pose_camera
 cmd_vel: /cmd_vel
 initialpose: /initialpose
 TF: map -> odom -> base_footprint
 camera: /camera/image_raw, /camera/camera_info
 ```
 
-로봇별 관제 Action 이름:
-
-```text
-robot1: /tb3_0/aruco_align_and_correct
-robot2: /tb3_1/aruco_align_and_correct
-robot3: /tb3_2/aruco_align_and_correct
-```
-
 동작 순서:
 
 ```text
 Nav2로 5번/6번 노드 근처 이동
--> 관제가 /tb3_2/aruco_align_and_correct Action goal 전송
+-> 관제가 /aruco_align_and_correct Action goal 전송
 -> Action 서버가 카메라 topic 구독 및 ArUco 검출 시작
 -> ArUco 마커 기준으로 전진/후진 및 회전 미세 정렬
 -> CorrectPoseWithAruco 호출
@@ -140,7 +133,7 @@ Nav2로 5번/6번 노드 근처 이동
 
 ## Pose Correction Action
 
-관제 연동은 robot별 `/tb3_*/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_footprint` pose를 계산합니다.
+관제 연동은 `/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_footprint` pose를 계산합니다.
 
 Action 서버는 기본적으로 대기 중에는 카메라 이미지 처리를 하지 않습니다. 관제에서 goal이 들어온 동안에만 `/camera/image_raw`, `/camera/camera_info`를 구독하고 ArUco 검출/pose 계산을 수행한 뒤, goal이 끝나면 구독을 해제합니다.
 
@@ -162,7 +155,7 @@ ros2 launch logitle_aruco_tools logitle_aruco_pose_corrector_action.launch.py \
 계산만 확인하는 dry-run:
 
 ```bash
-ros2 action send_goal /tb3_2/aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseWithAruco \
+ros2 action send_goal /aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseWithAruco \
 "{marker_id: 24, publish_tf: false}" \
 --feedback
 ```
@@ -170,7 +163,7 @@ ros2 action send_goal /tb3_2/aruco_correct_pose logitle_aruco_msgs/action/Correc
 보정 적용:
 
 ```bash
-ros2 action send_goal /tb3_2/aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseWithAruco \
+ros2 action send_goal /aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseWithAruco \
 "{marker_id: 24, publish_tf: true}" \
 --feedback
 ```
