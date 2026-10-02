@@ -141,9 +141,9 @@ def parse_args():
     robot_namespace = default_robot_namespace()
     parser = argparse.ArgumentParser()
     parser.add_argument("--pose-topic", default=scoped_topic(robot_namespace, "aruco/id24/pose_camera"))
-    parser.add_argument("--cmd-vel-topic", default=scoped_topic(robot_namespace, "cmd_vel"))
+    parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
     parser.add_argument("--cmd-vel-stamped", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--cmd-frame-id", default=scoped_frame(robot_namespace, "base_link"))
+    parser.add_argument("--cmd-frame-id", default="base_footprint")
     parser.add_argument("--enable-motion", action="store_true")
 
     parser.add_argument("--x-tol", type=float, default=0.02)

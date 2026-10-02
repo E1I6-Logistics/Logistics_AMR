@@ -848,7 +848,7 @@ def parse_args():
         "--pose-topic-template",
         default=scoped_topic(robot_namespace, "aruco/id{marker_id}/pose_camera"),
     )
-    parser.add_argument("--pose-frame-id", default=scoped_frame(robot_namespace, "camera_optical_frame"))
+    parser.add_argument("--pose-frame-id", default="camera_optical_frame")
     parser.add_argument("--marker-map", default="logitle_marker_map.yaml")
     parser.add_argument("--marker-id", type=int, default=24)
     parser.add_argument("--marker-size", type=float, default=0.04)
@@ -861,9 +861,9 @@ def parse_args():
     parser.add_argument("--approx-horizontal-fov-deg", type=float, default=62.2)
 
     parser.add_argument("--map-frame", default="map")
-    parser.add_argument("--odom-frame", default=scoped_frame(robot_namespace, "odom"))
-    parser.add_argument("--base-frame", default=scoped_frame(robot_namespace, "base_link"))
-    parser.add_argument("--initialpose-topic", default=scoped_topic(robot_namespace, "initialpose"))
+    parser.add_argument("--odom-frame", default="odom")
+    parser.add_argument("--base-frame", default="base_footprint")
+    parser.add_argument("--initialpose-topic", default="/initialpose")
     parser.add_argument("--initialpose-xy-std", type=float, default=0.05)
     parser.add_argument("--initialpose-yaw-std-deg", type=float, default=5.0)
     parser.add_argument(

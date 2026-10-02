@@ -45,7 +45,7 @@ def generate_launch_description():
             "pose_topic_template",
             default_value=scoped_topic(robot_namespace, "aruco/id{marker_id}/pose_camera"),
         ),
-        DeclareLaunchArgument("pose_frame_id", default_value=scoped_frame(robot_namespace, "camera_optical_frame")),
+        DeclareLaunchArgument("pose_frame_id", default_value="camera_optical_frame"),
         DeclareLaunchArgument("print_period", default_value="0.5"),
         DeclareLaunchArgument("save_path", default_value="/tmp/aruco_pose_viewer.jpg"),
         Node(

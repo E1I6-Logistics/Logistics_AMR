@@ -326,7 +326,7 @@ def parse_args():
         "--pose-topic-template",
         default=scoped_topic(robot_namespace, "aruco/id{marker_id}/pose_camera"),
     )
-    parser.add_argument("--pose-frame-id", default=scoped_frame(robot_namespace, "camera_optical_frame"))
+    parser.add_argument("--pose-frame-id", default="camera_optical_frame")
     parser.add_argument("--print-period", type=float, default=0.5)
     parser.add_argument("--save-path", default="/tmp/aruco_pose_viewer.jpg")
     parser.add_argument("--save-period", type=float, default=1.0)
