@@ -13,12 +13,12 @@ float32 z_min_stop 0.25
 float32 stable_sec 0.4
 
 float32 max_linear 0.030
-float32 max_angular 0.12
-float32 kx 2.5
+float32 max_angular 0.04
+float32 kx 0.8
 float32 kz 1.2
 bool check_wall_yaw true
-float32 wall_yaw_tolerance_deg 1.0
-float32 kyaw 1.2
+float32 wall_yaw_tolerance_deg 2.0
+float32 kyaw 0.6
 
 bool apply_correction true
 int32 required_samples 15

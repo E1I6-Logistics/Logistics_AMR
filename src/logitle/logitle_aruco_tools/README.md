@@ -156,9 +156,12 @@ Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 �
 예를 들어 6번 좌표의 ID25는 `target_x=-0.173m`, `target_z=0.392m`,
 `expected_base_yaw_deg=-87deg` preset을 사용합니다.
 공통 정렬 기준은 `x_tolerance=0.005m`, `z_tolerance=0.007m`,
-`wall_yaw_tolerance_deg=1deg`, `yaw_tolerance_deg=3deg`입니다.
+`wall_yaw_tolerance_deg=2deg`, `yaw_tolerance_deg=3deg`입니다.
 `target_x`는 카메라 기준에서 마커가 보이는 정상 위치이며, 마커를 화면 정중앙(`x=0`)으로
 맞추는 값이 아닙니다. 마커가 보이는 범위 안에서만 정렬할 수 있으며, pose가 끊기면 즉시 정지합니다.
+제어는 벽 방향과 위치를 한 번에 합산하지 않습니다. 먼저 벽 방향 오차가 허용 범위 안에
+들어올 때까지 회전하고, 이후 x/z 위치를 보정합니다. 이 순차 제어로 회전과 전진이 서로
+간섭해 오차가 커지는 현상을 줄입니다.
 
 현장 측정값을 기준으로 marker별 정렬 preset을 코드에 포함합니다. 관제가 `target_x`, `target_z`,
 `expected_base_yaw_deg`를 생략하면 아래 preset이 적용됩니다. Action 정의의 `target_x=0.0`,
