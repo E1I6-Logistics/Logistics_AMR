@@ -43,6 +43,9 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_camera = LaunchConfiguration('use_camera')
     use_aruco = LaunchConfiguration('use_aruco')
+    use_nav2 = LaunchConfiguration('use_nav2')
+    use_logitle_pose = LaunchConfiguration('use_logitle_pose')
+    use_docking = LaunchConfiguration('use_docking')
 
     initial_pose_x = LaunchConfiguration('initial_pose_x')
     initial_pose_y = LaunchConfiguration('initial_pose_y')
@@ -78,6 +81,24 @@ def generate_launch_description():
         'use_aruco',
         default_value='true',
         description='Launch ArUco alignment/correction action servers.'
+    )
+
+    declare_use_nav2_cmd = DeclareLaunchArgument(
+        'use_nav2',
+        default_value='true',
+        description='Launch Nav2 navigation stack.'
+    )
+
+    declare_use_logitle_pose_cmd = DeclareLaunchArgument(
+        'use_logitle_pose',
+        default_value='true',
+        description='Launch logitle pose publisher.'
+    )
+
+    declare_use_docking_cmd = DeclareLaunchArgument(
+        'use_docking',
+        default_value='true',
+        description='Launch logitle docking action server.'
     )
 
     declare_mask_yaml_cmd = DeclareLaunchArgument(
@@ -166,7 +187,8 @@ def generate_launch_description():
             'initial_pose_x': initial_pose_x,
             'initial_pose_y': initial_pose_y,
             'initial_pose_yaw': initial_pose_yaw,
-        }.items()
+        }.items(),
+        condition=IfCondition(use_nav2),
     )
 
     # ============================================================
@@ -198,7 +220,8 @@ def generate_launch_description():
                 'topic_name': 'logitle_pose',
                 'use_sim_time': use_sim_time,
             }
-        ]
+        ],
+        condition=IfCondition(use_logitle_pose),
     )
 
     # ============================================================
@@ -218,7 +241,8 @@ def generate_launch_description():
                 'global_frame': 'map',
                 'base_frame': 'base_footprint',
             }
-        ]
+        ],
+        condition=IfCondition(use_docking),
     )
 
     # ============================================================
@@ -250,6 +274,9 @@ def generate_launch_description():
     ld.add_action(declare_use_sim_time_cmd)
     ld.add_action(declare_use_camera_cmd)
     ld.add_action(declare_use_aruco_cmd)
+    ld.add_action(declare_use_nav2_cmd)
+    ld.add_action(declare_use_logitle_pose_cmd)
+    ld.add_action(declare_use_docking_cmd)
     ld.add_action(declare_mask_yaml_cmd)
 
     ld.add_action(declare_initial_pose_x_cmd)

@@ -73,13 +73,41 @@ ros2 launch logitle_bringup logitle_robot.launch.py use_aruco:=false
 Action goal이 들어온 동안에만 `/camera/image_raw`, `/camera/camera_info`를 구독해서 ArUco 검출을 수행합니다.
 goal이 끝나면 카메라 구독을 해제하므로, launch만 켜둔 상태에서는 정렬 제어와 ArUco 이미지 처리를 하지 않습니다.
 
-카메라가 연결된 로봇이면 robot1/2/3 모두 같은 구조로 사용할 수 있습니다. robot1/2에서 카메라까지 함께 켜야 하는 경우에는 다음처럼 실행합니다.
+카메라가 연결된 로봇이면 robot1/2/3 모두 같은 구조로 사용할 수 있습니다.
+현재 `use_camera` 기본값은 robot1/2/3 모두 `true`입니다. 카메라를 끄고 싶을 때만 `use_camera:=false`를 전달합니다.
 
 ```bash
-ros2 launch logitle_bringup logitle_robot.launch.py use_camera:=true
+ros2 launch logitle_bringup logitle_robot.launch.py use_camera:=false
 ```
 
-현재 `use_camera` 기본값은 robot1/2/3 모두 `true`입니다. 카메라를 끄고 싶을 때만 `use_camera:=false`를 전달합니다.
+현장 측정처럼 전체 운용 스택이 필요 없는 경우에는 필요한 노드만 켜서 부하를 줄입니다.
+
+ArUco 마커 x/z 값만 확인할 때:
+
+```bash
+ros2 launch turtlebot3_bringup camera.launch.py
+ros2 launch logitle_aruco_tools logitle_aruco_pose_viewer.launch.py marker_ids:=24,25,28,29
+```
+
+로봇 TF yaw만 확인할 때:
+
+```bash
+ros2 launch logitle_bringup logitle_robot.launch.py \
+  use_camera:=false \
+  use_aruco:=false \
+  use_nav2:=false \
+  use_logitle_pose:=false \
+  use_docking:=false
+```
+
+Nav2/AMCL 기준 `map -> base_footprint` yaw까지 필요하지만 docking/ArUco/camera는 필요 없을 때:
+
+```bash
+ros2 launch logitle_bringup logitle_robot.launch.py \
+  use_camera:=false \
+  use_aruco:=false \
+  use_docking:=false
+```
 
 운용 기준 실행 순서는 다음과 같습니다.
 
