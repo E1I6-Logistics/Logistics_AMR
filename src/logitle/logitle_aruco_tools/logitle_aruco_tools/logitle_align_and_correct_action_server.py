@@ -37,6 +37,49 @@ RESULT_ALIGN_FAILED = AlignAndCorrectWithAruco.Result.RESULT_ALIGN_FAILED
 RESULT_CORRECTION_FAILED = AlignAndCorrectWithAruco.Result.RESULT_CORRECTION_FAILED
 RESULT_INVALID_GOAL = AlignAndCorrectWithAruco.Result.RESULT_INVALID_GOAL
 
+ACTION_DEFAULT_TARGET_X = -0.173
+ACTION_DEFAULT_TARGET_Z = 0.392
+ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG = -87.0
+ACTION_DEFAULT_YAW_TOLERANCE_DEG = 3.0
+
+ALIGN_TARGET_PRESETS = {
+    24: {
+        "node": "N5",
+        "target_x": -0.184,
+        "target_z": 0.376,
+        "check_yaw": True,
+        "expected_base_yaw_deg": -87.0,
+    },
+    25: {
+        "node": "N6",
+        "target_x": -0.173,
+        "target_z": 0.392,
+        "check_yaw": True,
+        "expected_base_yaw_deg": -87.0,
+    },
+    26: {
+        "node": "N4",
+        "target_x": -0.004,
+        "target_z": 0.408,
+        "check_yaw": False,
+        "expected_base_yaw_deg": None,
+    },
+    27: {
+        "node": "N3",
+        "target_x": 0.004,
+        "target_z": 0.412,
+        "check_yaw": False,
+        "expected_base_yaw_deg": None,
+    },
+    29: {
+        "node": "N5",
+        "target_x": 0.186,
+        "target_z": 0.377,
+        "check_yaw": True,
+        "expected_base_yaw_deg": -87.0,
+    },
+}
+
 
 def clamp(value, low, high):
     return max(low, min(high, value))
@@ -64,6 +107,10 @@ def bool_arg(value):
     if text in ("0", "false", "no", "off"):
         return False
     raise argparse.ArgumentTypeError(f"expected a boolean value, got {value!r}")
+
+
+def is_close(value, default, eps=1e-6):
+    return abs(float(value) - float(default)) <= eps
 
 
 def default_robot_namespace():
@@ -191,7 +238,7 @@ class AlignAndCorrectActionServer(Node):
     def execute_callback(self, goal_handle):
         goal = goal_handle.request
         marker_id = int(goal.marker_id) if goal.marker_id > 0 else self.args.marker_id
-        params = self.params_from_goal(goal)
+        params = self.params_from_goal(goal, marker_id)
 
         if not self.validate_params(params):
             result = self.make_result(False, RESULT_INVALID_GOAL, "Invalid align/correct goal values.")
@@ -200,10 +247,12 @@ class AlignAndCorrectActionServer(Node):
             return result
 
         self.start_pose_input(marker_id)
+        preset_text = f"; preset_node={params['preset_node']}" if params["preset_node"] else ""
         self.get_logger().info(
             f"Accepted align/correct goal: marker_id={marker_id}; "
             f"target_x={params['target_x']:.3f}m; target_z={params['target_z']:.3f}m; "
             f"align_timeout={params['align_timeout_sec']:.1f}s; apply_correction={goal.apply_correction}"
+            f"{preset_text}"
         )
 
         try:
@@ -230,7 +279,7 @@ class AlignAndCorrectActionServer(Node):
                 return result
 
             self.stop_pose_input()
-            correction = self.run_pose_correction(goal_handle, goal, marker_id, params["correct_timeout_sec"])
+            correction = self.run_pose_correction(goal_handle, marker_id, params)
             merged = dict(align_result)
             merged.update(correction)
             if not correction["correction_success"]:
@@ -256,13 +305,33 @@ class AlignAndCorrectActionServer(Node):
             self.stop_pose_input()
             self.release_goal()
 
-    def params_from_goal(self, goal):
+    def params_from_goal(self, goal, marker_id):
+        preset = ALIGN_TARGET_PRESETS.get(int(marker_id))
+        target_x = finite_or_default(goal.target_x, self.args.target_x)
+        target_z = positive_or_default(goal.target_z, self.args.target_z)
+        check_yaw = bool(goal.check_yaw)
+        expected_base_yaw_deg = finite_or_default(goal.expected_base_yaw_deg, ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG)
+        yaw_tolerance_deg = positive_or_default(goal.yaw_tolerance_deg, self.args.yaw_tolerance_deg)
+
+        if preset:
+            if is_close(goal.target_x, ACTION_DEFAULT_TARGET_X):
+                target_x = float(preset["target_x"])
+            if is_close(goal.target_z, ACTION_DEFAULT_TARGET_Z):
+                target_z = float(preset["target_z"])
+            if bool(goal.check_yaw) and preset["check_yaw"] is False:
+                check_yaw = False
+            if (
+                preset["expected_base_yaw_deg"] is not None
+                and is_close(goal.expected_base_yaw_deg, ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG)
+            ):
+                expected_base_yaw_deg = float(preset["expected_base_yaw_deg"])
+
         return {
             "timeout_sec": positive_or_default(goal.timeout_sec, self.args.timeout_sec),
             "align_timeout_sec": positive_or_default(goal.align_timeout_sec, self.args.align_timeout_sec),
             "correct_timeout_sec": positive_or_default(goal.correct_timeout_sec, self.args.correct_timeout_sec),
-            "target_x": finite_or_default(goal.target_x, self.args.target_x),
-            "target_z": positive_or_default(goal.target_z, self.args.target_z),
+            "target_x": target_x,
+            "target_z": target_z,
             "x_tolerance": positive_or_default(goal.x_tolerance, self.args.x_tolerance),
             "z_tolerance": positive_or_default(goal.z_tolerance, self.args.z_tolerance),
             "z_min_stop": positive_or_default(goal.z_min_stop, self.args.z_min_stop),
@@ -277,11 +346,15 @@ class AlignAndCorrectActionServer(Node):
             ),
             "kyaw": positive_or_default(goal.kyaw, self.args.kyaw),
             "required_samples": int_or_default(goal.required_samples, self.args.required_samples),
+            "check_yaw": check_yaw,
+            "expected_base_yaw_deg": expected_base_yaw_deg,
+            "yaw_tolerance_deg": yaw_tolerance_deg,
+            "preset_node": preset["node"] if preset else "",
         }
 
     def validate_params(self, params):
         for key, value in params.items():
-            if key == "check_wall_yaw":
+            if key in ("check_wall_yaw", "check_yaw", "preset_node"):
                 continue
             if not math.isfinite(float(value)):
                 return False
@@ -466,7 +539,8 @@ class AlignAndCorrectActionServer(Node):
         linear_x = clamp(params["kz"] * z_error, -params["max_linear"], params["max_linear"])
         return linear_x, angular_z, "aligning", x_error, z_error, wall_yaw_error
 
-    def run_pose_correction(self, goal_handle, align_goal, marker_id, timeout_sec):
+    def run_pose_correction(self, goal_handle, marker_id, params):
+        timeout_sec = float(params["correct_timeout_sec"])
         if not self.correct_client.wait_for_server(timeout_sec=timeout_sec):
             return {
                 "correction_success": False,
@@ -478,10 +552,10 @@ class AlignAndCorrectActionServer(Node):
         correct_goal.marker_id = int(marker_id)
         correct_goal.publish_tf = True
         correct_goal.timeout_sec = float(timeout_sec)
-        correct_goal.required_samples = int_or_default(align_goal.required_samples, self.args.required_samples)
-        correct_goal.check_yaw = bool(align_goal.check_yaw)
-        correct_goal.expected_base_yaw_deg = float(align_goal.expected_base_yaw_deg)
-        correct_goal.yaw_tolerance_deg = positive_or_default(align_goal.yaw_tolerance_deg, self.args.yaw_tolerance_deg)
+        correct_goal.required_samples = int(params["required_samples"])
+        correct_goal.check_yaw = bool(params["check_yaw"])
+        correct_goal.expected_base_yaw_deg = float(params["expected_base_yaw_deg"])
+        correct_goal.yaw_tolerance_deg = float(params["yaw_tolerance_deg"])
 
         send_future = self.correct_client.send_goal_async(
             correct_goal,

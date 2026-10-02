@@ -159,6 +159,46 @@ Nav2로 5번/6번 노드 근처 이동
 `target_x`는 카메라 기준에서 마커가 보이는 정상 위치이며, 마커를 화면 정중앙(`x=0`)으로
 맞추는 값이 아닙니다. 마커가 보이는 범위 안에서만 정렬할 수 있으며, pose가 끊기면 즉시 정지합니다.
 
+현장 측정값을 기준으로 marker별 정렬 preset을 코드에 포함합니다. 관제가 `target_x`, `target_z`,
+`expected_base_yaw_deg`를 생략하면 아래 preset이 적용됩니다.
+
+```text
+N3 / ID27
+target_x = 0.004
+target_z = 0.412
+check_yaw = false
+비고: 오른쪽 벽 기준, AMCL 수렴 후 yaw 재측정 필요
+
+N4 / ID26
+target_x = -0.004
+target_z = 0.408
+check_yaw = false
+비고: 오른쪽 벽 기준, AMCL 수렴 후 yaw 재측정 필요
+
+N5 / ID24
+target_x = -0.184
+target_z = 0.376
+expected_base_yaw_deg = -87.0
+
+N5 / ID29
+target_x = 0.186
+target_z = 0.377
+expected_base_yaw_deg = -87.0
+
+N6 / ID25
+target_x = -0.173
+target_z = 0.392
+expected_base_yaw_deg = -87.0
+```
+
+예를 들어 N4의 ID26은 다음처럼 `marker_id`만 보내도 N4 preset이 적용됩니다.
+
+```bash
+ros2 action send_goal /aruco_align_and_correct logitle_aruco_msgs/action/AlignAndCorrectWithAruco \
+"{marker_id: 26, apply_correction: true}" \
+--feedback
+```
+
 ## Pose Correction Action
 
 관제 연동은 `/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_footprint` pose를 계산합니다.
