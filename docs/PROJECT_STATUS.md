@@ -125,6 +125,8 @@ Last updated: 2026-09-30
 - ID25는 약 `0.25m` 근처에서 너무 가까워 yaw reject가 급증했고, 약 `0.68m ~ 0.77m`에서는 검출은 되지만 z/yaw reject가 급증해 TF 보정용으로 제외한다.
 - ID25 현장 권장 사용 거리는 약 `0.35m ~ 0.55m`로 좁혀 잡는다.
 - 2026-10-01 로봇이 실제 6번 좌표에 도착한 자세에서는 ID25가 `x=-0.166~-0.167m`, `distance=0.423~0.427m`로 안정 검출되었고, `expected_base_yaw_deg=-87`, `yaw_tolerance_deg=3` 조건에서 dry-run accepted sample이 안정적으로 증가했다.
+- 2026-10-01 오른쪽 벽에 ID26/ID27을 부착했고, 3/4번 좌표 기준 `marker_map.yaml` 좌표 초안을 추가했다. ID26/ID27의 보정용 expected yaw와 권장 거리는 dry-run/publish-tf로 측정 예정.
+- 2026-10-01 로봇팔 오른쪽에 ID28/ID29를 추가했고, ID24/ID25 기준 상대 거리로 `marker_map.yaml` 좌표 초안을 추가했다. ID28/ID29의 보정용 expected yaw와 권장 거리는 dry-run/publish-tf로 측정 예정.
 - 아래쪽 벽 기준 최종 현장 권장 사용 거리는 ID24/ID25 모두 약 `0.35m ~ 0.55m`다.
 
 2026-09-29 진행 요약:

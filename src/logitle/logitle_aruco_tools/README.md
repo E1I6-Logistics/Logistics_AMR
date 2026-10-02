@@ -1,6 +1,6 @@
 # logitle_aruco_tools
 
-TurtleBot3에서 4 cm ArUco 마커(ID 24, 25 / `DICT_5X5_50`)를 이용해 카메라 기준 pose를 발행하고, 마커 기반 자동정렬과 `map -> odom` TF 보정 dry-run/publish를 수행하는 ROS 2 Python 패키지입니다.
+TurtleBot3에서 4 cm ArUco 마커(ID 24, 25 / `DICT_5X5_1000`)를 이용해 카메라 기준 pose를 발행하고, 마커 기반 자동정렬과 `map -> odom` TF 보정 dry-run/publish를 수행하는 ROS 2 Python 패키지입니다.
 
 ## Build
 
@@ -50,33 +50,91 @@ ros2 launch logitle_aruco_tools logitle_aruco_auto_align.launch.py enable_motion
 ## Pickup Alignment And Pose Correction
 
 5번/6번 노드처럼 로봇팔 앞 작업 위치에 도착한 뒤, 마커 기준으로 미세 정렬하고 이어서 pose correction까지 수행할 때 사용합니다.
+현재는 `logitle_bringup`의 `logitle_robot.launch.py` 안에 포함되어 있으므로, 일반 운용에서는 별도 ArUco launch를 추가로 실행하지 않아도 됩니다.
 
 ```bash
-ros2 launch logitle_aruco_tools logitle_aruco_align_and_correct.launch.py
+ros2 launch logitle_bringup logitle_robot.launch.py
+```
+
+`logitle_robot.launch.py`는 기본적으로 아래 ArUco Action 서버를 함께 실행합니다.
+
+```text
+logitle_align_and_correct_action_server
+logitle_aruco_pose_corrector_action_server
+```
+
+ArUco 기능만 끄고 기본 bringup을 실행해야 할 때는 다음처럼 실행합니다.
+
+```bash
+ros2 launch logitle_bringup logitle_robot.launch.py use_aruco:=false
+```
+
+`logitle_aruco_pose_viewer`는 포함하지 않습니다. 두 서버 모두 기본 `pose_source:=camera` 모드로 대기하며,
+Action goal이 들어온 동안에만 `/camera/image_raw`, `/camera/camera_info`를 구독해서 ArUco 검출을 수행합니다.
+goal이 끝나면 카메라 구독을 해제하므로, launch만 켜둔 상태에서는 정렬 제어와 ArUco 이미지 처리를 하지 않습니다.
+
+카메라가 연결된 로봇이면 robot1/2/3 모두 같은 구조로 사용할 수 있습니다. robot1/2에서 카메라까지 함께 켜야 하는 경우에는 다음처럼 실행합니다.
+
+```bash
+ros2 launch logitle_bringup logitle_robot.launch.py use_camera:=true
+```
+
+현재 robot3는 기존 bringup 설정에 따라 `use_camera` 기본값이 `true`이고, robot1/2는 기본값이 `false`입니다.
+
+운용 기준 실행 순서는 다음과 같습니다.
+
+```bash
+source ~/shellscript/logitlebash.sh
+sl
+ros_local
+ros2 launch logitle_bringup logitle_robot.launch.py
 ```
 
 관제 호출 예시:
 
 ```bash
-ros2 action send_goal /aruco_align_and_correct logitle_aruco_msgs/action/AlignAndCorrectWithAruco \
-"{marker_id: 24, apply_correction: true}" \
+ros2 action send_goal /tb3_2/aruco_align_and_correct logitle_aruco_msgs/action/AlignAndCorrectWithAruco \
+"{marker_id: 25, apply_correction: true}" \
 --feedback
+```
+
+ArUco launch 기본 이름은 실행 계정명 마지막 숫자를 기준으로 자동 분리됩니다.
+`turtlebot1`은 `tb3_0`, `turtlebot2`는 `tb3_1`, `turtlebot3`는 `tb3_2`를 사용합니다.
+예를 들어 robot3에서는 Action이 `/tb3_2/aruco_align_and_correct`,
+pose topic이 `/tb3_2/aruco/id25/pose_camera`, cmd_vel이 `/tb3_2/cmd_vel`,
+initialpose가 `/tb3_2/initialpose`, TF frame이 `tb3_2/odom`, `tb3_2/base_link` 기준입니다.
+카메라 토픽은 각 로봇 내부에서 기존 `/camera/image_raw`, `/camera/camera_info`를 사용합니다.
+
+로봇별 관제 Action 이름:
+
+```text
+robot1: /tb3_0/aruco_align_and_correct
+robot2: /tb3_1/aruco_align_and_correct
+robot3: /tb3_2/aruco_align_and_correct
 ```
 
 동작 순서:
 
 ```text
 Nav2로 5번/6번 노드 근처 이동
+-> 관제가 /tb3_2/aruco_align_and_correct Action goal 전송
+-> Action 서버가 카메라 topic 구독 및 ArUco 검출 시작
 -> ArUco 마커 기준으로 전진/후진 및 회전 미세 정렬
 -> CorrectPoseWithAruco 호출
--> /initialpose로 AMCL/Nav2 위치 보정
+-> /tb3_2/initialpose로 AMCL/Nav2 위치 보정
+-> Action 종료 후 카메라 topic 구독 해제
 ```
 
-기본 정렬 목표는 `target_z=0.32m`, `x_tolerance=0.025m`, `z_tolerance=0.035m`입니다. 마커가 보이는 범위 안에서만 정렬할 수 있으며, pose가 끊기면 즉시 정지합니다.
+6번 좌표에서 벽을 정면으로 바라본 정상 측정값과 현장 거리 보정 결과를 기준으로 기본 정렬 목표는
+`marker_id=25`, `target_x=-0.173m`, `target_z=0.392m`,
+`x_tolerance=0.005m`, `z_tolerance=0.007m`, `wall_yaw_tolerance_deg=1deg`,
+`expected_base_yaw_deg=-87deg`, `yaw_tolerance_deg=3deg`입니다.
+`target_x`는 카메라 기준에서 마커가 보이는 정상 위치이며, 마커를 화면 정중앙(`x=0`)으로
+맞추는 값이 아닙니다. 마커가 보이는 범위 안에서만 정렬할 수 있으며, pose가 끊기면 즉시 정지합니다.
 
 ## Pose Correction Action
 
-관제 연동은 `/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_link` pose를 계산합니다.
+관제 연동은 robot별 `/tb3_*/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_link` pose를 계산합니다.
 
 Action 서버는 기본적으로 대기 중에는 카메라 이미지 처리를 하지 않습니다. 관제에서 goal이 들어온 동안에만 `/camera/image_raw`, `/camera/camera_info`를 구독하고 ArUco 검출/pose 계산을 수행한 뒤, goal이 끝나면 구독을 해제합니다.
 
@@ -98,7 +156,7 @@ ros2 launch logitle_aruco_tools logitle_aruco_pose_corrector_action.launch.py \
 계산만 확인하는 dry-run:
 
 ```bash
-ros2 action send_goal /aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseWithAruco \
+ros2 action send_goal /tb3_2/aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseWithAruco \
 "{marker_id: 24, publish_tf: false}" \
 --feedback
 ```
@@ -106,7 +164,7 @@ ros2 action send_goal /aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseW
 보정 적용:
 
 ```bash
-ros2 action send_goal /aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseWithAruco \
+ros2 action send_goal /tb3_2/aruco_correct_pose logitle_aruco_msgs/action/CorrectPoseWithAruco \
 "{marker_id: 24, publish_tf: true}" \
 --feedback
 ```

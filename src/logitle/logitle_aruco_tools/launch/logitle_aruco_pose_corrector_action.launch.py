@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Launch the on-demand ArUco pose-correction action server."""
 
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -8,7 +10,24 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
+def default_robot_namespace():
+    return {
+        "1": "tb3_0",
+        "2": "tb3_1",
+        "3": "tb3_2",
+    }.get(os.environ.get("USER", "")[-1:], "")
+
+
+def scoped_topic(namespace, name):
+    return f"/{namespace}/{name}" if namespace else f"/{name}"
+
+
+def scoped_frame(namespace, name):
+    return f"{namespace}/{name}" if namespace else name
+
+
 def generate_launch_description():
+    robot_namespace = default_robot_namespace()
     default_marker_map = PathJoinSubstitution([
         FindPackageShare("logitle_aruco_tools"),
         "config",
@@ -18,20 +37,23 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
         DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
-        DeclareLaunchArgument("dictionary", default_value="5X5_50"),
-        DeclareLaunchArgument("marker_id", default_value="24"),
-        DeclareLaunchArgument("marker_size", default_value="0.0395"),
+        DeclareLaunchArgument("dictionary", default_value="5X5_1000"),
+        DeclareLaunchArgument("marker_id", default_value="25"),
+        DeclareLaunchArgument("marker_size", default_value="0.04"),
         DeclareLaunchArgument("marker_map", default_value=default_marker_map),
         DeclareLaunchArgument("pose_source", default_value="camera"),
-        DeclareLaunchArgument("pose_topic_template", default_value="/aruco/id{marker_id}/pose_camera"),
-        DeclareLaunchArgument("pose_frame_id", default_value="camera_optical_frame"),
-        DeclareLaunchArgument("action_name", default_value="/aruco_correct_pose"),
+        DeclareLaunchArgument(
+            "pose_topic_template",
+            default_value=scoped_topic(robot_namespace, "aruco/id{marker_id}/pose_camera"),
+        ),
+        DeclareLaunchArgument("pose_frame_id", default_value=scoped_frame(robot_namespace, "camera_optical_frame")),
+        DeclareLaunchArgument("action_name", default_value=scoped_topic(robot_namespace, "aruco_correct_pose")),
         DeclareLaunchArgument("approx_camera_info", default_value="false"),
         DeclareLaunchArgument("approx_horizontal_fov_deg", default_value="62.2"),
         DeclareLaunchArgument("map_frame", default_value="map"),
-        DeclareLaunchArgument("odom_frame", default_value="odom"),
-        DeclareLaunchArgument("base_frame", default_value="base_link"),
-        DeclareLaunchArgument("initialpose_topic", default_value="/initialpose"),
+        DeclareLaunchArgument("odom_frame", default_value=scoped_frame(robot_namespace, "odom")),
+        DeclareLaunchArgument("base_frame", default_value=scoped_frame(robot_namespace, "base_link")),
+        DeclareLaunchArgument("initialpose_topic", default_value=scoped_topic(robot_namespace, "initialpose")),
         DeclareLaunchArgument("initialpose_xy_std", default_value="0.05"),
         DeclareLaunchArgument("initialpose_yaw_std_deg", default_value="5.0"),
         DeclareLaunchArgument("allow_tf_publish", default_value="false"),
@@ -48,6 +70,7 @@ def generate_launch_description():
             package="logitle_aruco_tools",
             executable="logitle_aruco_pose_corrector_action_server",
             name="aruco_pose_corrector_action_server",
+            namespace=robot_namespace,
             output="screen",
             arguments=[
                 "--action-name",

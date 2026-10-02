@@ -16,6 +16,7 @@
   <exec_depend>turtlebot3_navigation2</exec_depend>
   <exec_depend>logitle_docking</exec_depend>
   <exec_depend>logitle_pose</exec_depend>
+  <exec_depend>logitle_aruco_tools</exec_depend>
   
   <export>
     <build_type>ament_cmake</build_type>

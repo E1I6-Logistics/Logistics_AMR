@@ -15,6 +15,7 @@ measured and checked.
 
 import argparse
 import math
+import os
 import time
 from collections import deque
 
@@ -49,6 +50,22 @@ except ImportError:
         rpy_to_matrix,
     )
     from logitle_marker_map import load_marker_map
+
+
+def default_robot_namespace():
+    return {
+        "1": "tb3_0",
+        "2": "tb3_1",
+        "3": "tb3_2",
+    }.get(os.environ.get("USER", "")[-1:], "")
+
+
+def scoped_topic(namespace, name):
+    return f"/{namespace}/{name}" if namespace else f"/{name}"
+
+
+def scoped_frame(namespace, name):
+    return f"{namespace}/{name}" if namespace else name
 
 
 def quaternion_to_matrix(qx, qy, qz, qw):
@@ -318,15 +335,16 @@ class ArucoTfCorrector(Node):
 
 
 def parse_args():
+    robot_namespace = default_robot_namespace()
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pose-topic", default="/aruco/id24/pose_camera")
+    parser.add_argument("--pose-topic", default=scoped_topic(robot_namespace, "aruco/id24/pose_camera"))
     parser.add_argument("--marker-map", default="logitle_marker_map.yaml")
     parser.add_argument("--marker-id", type=int, default=24)
     parser.add_argument("--publish-tf", action="store_true")
 
     parser.add_argument("--map-frame", default="map")
-    parser.add_argument("--odom-frame", default="odom")
-    parser.add_argument("--base-frame", default="base_link")
+    parser.add_argument("--odom-frame", default=scoped_frame(robot_namespace, "odom"))
+    parser.add_argument("--base-frame", default=scoped_frame(robot_namespace, "base_link"))
 
     parser.add_argument("--camera-x", type=float, default=0.05)
     parser.add_argument("--camera-y", type=float, default=0.0)

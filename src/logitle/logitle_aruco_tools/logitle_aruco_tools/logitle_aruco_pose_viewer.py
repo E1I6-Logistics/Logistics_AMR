@@ -7,6 +7,8 @@ prints the selected marker pose in the camera optical frame.
 
 import argparse
 import math
+import os
+import sys
 import time
 
 import cv2
@@ -15,6 +17,7 @@ import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import CameraInfo, Image
 
 from logitle_aruco_tools.logitle_marker_map import load_marker_map
@@ -24,12 +27,15 @@ ARUCO_DICTS = {
     "4X4_50": cv2.aruco.DICT_4X4_50,
     "4X4_100": cv2.aruco.DICT_4X4_100,
     "4X4_250": cv2.aruco.DICT_4X4_250,
+    "4X4_1000": cv2.aruco.DICT_4X4_1000,
     "5X5_50": cv2.aruco.DICT_5X5_50,
     "5X5_100": cv2.aruco.DICT_5X5_100,
     "5X5_250": cv2.aruco.DICT_5X5_250,
+    "5X5_1000": cv2.aruco.DICT_5X5_1000,
     "6X6_50": cv2.aruco.DICT_6X6_50,
     "6X6_100": cv2.aruco.DICT_6X6_100,
     "6X6_250": cv2.aruco.DICT_6X6_250,
+    "6X6_1000": cv2.aruco.DICT_6X6_1000,
 }
 
 
@@ -44,6 +50,22 @@ def make_detector_params():
     params.minCornerDistanceRate = 0.05
     params.minDistanceToBorder = 10
     return params
+
+
+def default_robot_namespace():
+    return {
+        "1": "tb3_0",
+        "2": "tb3_1",
+        "3": "tb3_2",
+    }.get(os.environ.get("USER", "")[-1:], "")
+
+
+def scoped_topic(namespace, name):
+    return f"/{namespace}/{name}" if namespace else f"/{name}"
+
+
+def scoped_frame(namespace, name):
+    return f"{namespace}/{name}" if namespace else name
 
 
 def rotation_matrix_to_quaternion(R):
@@ -110,13 +132,13 @@ class ArucoPoseViewer(Node):
         self.create_subscription(Image, args.image_topic, self.image_cb, 10)
         if len(self.marker_ids) == 1:
             marker_id = self.marker_ids[0]
-            pose_topic = args.pose_topic or f"/aruco/id{marker_id}/pose_camera"
+            pose_topic = args.pose_topic or self.pose_topic_for_marker(marker_id)
             self.pose_pubs[marker_id] = self.create_publisher(PoseStamped, pose_topic, 10)
         else:
             if args.pose_topic:
                 raise ValueError("--pose-topic can only be used with a single marker id")
             for marker_id in self.marker_ids:
-                pose_topic = f"/aruco/id{marker_id}/pose_camera"
+                pose_topic = self.pose_topic_for_marker(marker_id)
                 self.pose_pubs[marker_id] = self.create_publisher(PoseStamped, pose_topic, 10)
 
         self.get_logger().info(
@@ -124,6 +146,12 @@ class ArucoPoseViewer(Node):
             f"dictionary={args.dictionary}, marker_ids={self.marker_ids}, "
             f"marker_sizes={self.marker_sizes}"
         )
+
+    def pose_topic_for_marker(self, marker_id):
+        try:
+            return self.args.pose_topic_template.format(marker_id=marker_id)
+        except (KeyError, IndexError, ValueError):
+            return self.args.pose_topic_template
 
     def camera_info_cb(self, msg):
         if len(msg.k) != 9 or msg.k[0] == 0.0:
@@ -275,10 +303,11 @@ def parse_marker_ids(text):
 
 
 def parse_args():
+    robot_namespace = default_robot_namespace()
     parser = argparse.ArgumentParser()
     parser.add_argument("--image-topic", default="/camera/image_raw")
     parser.add_argument("--camera-info-topic", default="/camera/camera_info")
-    parser.add_argument("--dictionary", choices=sorted(ARUCO_DICTS), default="5X5_50")
+    parser.add_argument("--dictionary", choices=sorted(ARUCO_DICTS), default="5X5_1000")
     parser.add_argument("--marker-id", type=int, default=24)
     parser.add_argument(
         "--marker-ids",
@@ -293,7 +322,11 @@ def parse_args():
         help="Optional logitle_marker_map.yaml. When set, per-ID size values override --marker-size.",
     )
     parser.add_argument("--pose-topic", default=None)
-    parser.add_argument("--pose-frame-id", default="camera_optical_frame")
+    parser.add_argument(
+        "--pose-topic-template",
+        default=scoped_topic(robot_namespace, "aruco/id{marker_id}/pose_camera"),
+    )
+    parser.add_argument("--pose-frame-id", default=scoped_frame(robot_namespace, "camera_optical_frame"))
     parser.add_argument("--print-period", type=float, default=0.5)
     parser.add_argument("--save-path", default="/tmp/aruco_pose_viewer.jpg")
     parser.add_argument("--save-period", type=float, default=1.0)
@@ -309,7 +342,7 @@ def parse_args():
         help="Horizontal FOV used with --approx-camera-info.",
     )
     parser.add_argument("--no-gui", action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(remove_ros_args(args=sys.argv)[1:])
 
 
 def main():

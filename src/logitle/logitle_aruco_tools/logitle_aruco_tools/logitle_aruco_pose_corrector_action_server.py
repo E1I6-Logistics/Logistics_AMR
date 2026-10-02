@@ -3,6 +3,8 @@
 
 import argparse
 import math
+import os
+import sys
 import threading
 import time
 from collections import deque
@@ -17,6 +19,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import Buffer, TransformBroadcaster, TransformException, TransformListener
 from logitle_aruco_msgs.action import CorrectPoseWithAruco
@@ -71,6 +74,22 @@ def bool_arg(value):
     if text in ("0", "false", "no", "off"):
         return False
     raise argparse.ArgumentTypeError(f"expected a boolean value, got {value!r}")
+
+
+def default_robot_namespace():
+    return {
+        "1": "tb3_0",
+        "2": "tb3_1",
+        "3": "tb3_2",
+    }.get(os.environ.get("USER", "")[-1:], "")
+
+
+def scoped_topic(namespace, name):
+    return f"/{namespace}/{name}" if namespace else f"/{name}"
+
+
+def scoped_frame(namespace, name):
+    return f"{namespace}/{name}" if namespace else name
 
 
 def circular_std_deg(angles_rad):
@@ -810,8 +829,9 @@ class ArucoPoseCorrectorActionServer(Node):
 
 
 def parse_args():
+    robot_namespace = default_robot_namespace()
     parser = argparse.ArgumentParser()
-    parser.add_argument("--action-name", default="/aruco_correct_pose")
+    parser.add_argument("--action-name", default=scoped_topic(robot_namespace, "aruco_correct_pose"))
     parser.add_argument(
         "--pose-source",
         choices=("camera", "topic"),
@@ -823,9 +843,12 @@ def parse_args():
     )
     parser.add_argument("--image-topic", default="/camera/image_raw")
     parser.add_argument("--camera-info-topic", default="/camera/camera_info")
-    parser.add_argument("--dictionary", choices=sorted(ARUCO_DICTS), default="5X5_50")
-    parser.add_argument("--pose-topic-template", default="/aruco/id{marker_id}/pose_camera")
-    parser.add_argument("--pose-frame-id", default="camera_optical_frame")
+    parser.add_argument("--dictionary", choices=sorted(ARUCO_DICTS), default="5X5_1000")
+    parser.add_argument(
+        "--pose-topic-template",
+        default=scoped_topic(robot_namespace, "aruco/id{marker_id}/pose_camera"),
+    )
+    parser.add_argument("--pose-frame-id", default=scoped_frame(robot_namespace, "camera_optical_frame"))
     parser.add_argument("--marker-map", default="logitle_marker_map.yaml")
     parser.add_argument("--marker-id", type=int, default=24)
     parser.add_argument("--marker-size", type=float, default=0.04)
@@ -838,9 +861,9 @@ def parse_args():
     parser.add_argument("--approx-horizontal-fov-deg", type=float, default=62.2)
 
     parser.add_argument("--map-frame", default="map")
-    parser.add_argument("--odom-frame", default="odom")
-    parser.add_argument("--base-frame", default="base_link")
-    parser.add_argument("--initialpose-topic", default="/initialpose")
+    parser.add_argument("--odom-frame", default=scoped_frame(robot_namespace, "odom"))
+    parser.add_argument("--base-frame", default=scoped_frame(robot_namespace, "base_link"))
+    parser.add_argument("--initialpose-topic", default=scoped_topic(robot_namespace, "initialpose"))
     parser.add_argument("--initialpose-xy-std", type=float, default=0.05)
     parser.add_argument("--initialpose-yaw-std-deg", type=float, default=5.0)
     parser.add_argument(
@@ -878,7 +901,7 @@ def parse_args():
     parser.add_argument("--pose-timeout", type=float, default=0.5)
     parser.add_argument("--feedback-period", type=float, default=0.2)
     parser.add_argument("--control-period", type=float, default=0.03)
-    return parser.parse_args()
+    return parser.parse_args(remove_ros_args(args=sys.argv)[1:])
 
 
 def main():

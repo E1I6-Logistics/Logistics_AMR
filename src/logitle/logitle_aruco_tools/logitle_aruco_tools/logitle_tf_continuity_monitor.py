@@ -4,6 +4,7 @@
 import argparse
 import csv
 import math
+import os
 import sys
 from dataclasses import dataclass
 
@@ -25,6 +26,18 @@ def angle_diff(a, b):
 
 def stamp_to_float(stamp):
     return float(stamp.sec) + float(stamp.nanosec) * 1e-9
+
+
+def default_robot_namespace():
+    return {
+        "1": "tb3_0",
+        "2": "tb3_1",
+        "3": "tb3_2",
+    }.get(os.environ.get("USER", "")[-1:], "")
+
+
+def scoped_frame(namespace, name):
+    return f"{namespace}/{name}" if namespace else name
 
 
 @dataclass
@@ -178,9 +191,10 @@ class TfContinuityMonitor(Node):
 
 
 def parse_args():
+    robot_namespace = default_robot_namespace()
     parser = argparse.ArgumentParser()
     parser.add_argument("--parent-frame", default="map")
-    parser.add_argument("--child-frame", default="base_link")
+    parser.add_argument("--child-frame", default=scoped_frame(robot_namespace, "base_link"))
     parser.add_argument("--sample-period", type=float, default=0.1)
     parser.add_argument("--duration-sec", type=float, default=0.0)
     parser.add_argument("--tf-timeout", type=float, default=0.05)
