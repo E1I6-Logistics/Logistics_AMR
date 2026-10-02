@@ -79,7 +79,7 @@ goal이 끝나면 카메라 구독을 해제하므로, launch만 켜둔 상태�
 ros2 launch logitle_bringup logitle_robot.launch.py use_camera:=true
 ```
 
-현재 robot3는 기존 bringup 설정에 따라 `use_camera` 기본값이 `true`이고, robot1/2는 기본값이 `false`입니다.
+현재 `use_camera` 기본값은 robot1/2/3 모두 `true`입니다. 카메라를 끄고 싶을 때만 `use_camera:=false`를 전달합니다.
 
 운용 기준 실행 순서는 다음과 같습니다.
 
@@ -98,12 +98,18 @@ ros2 action send_goal /tb3_2/aruco_align_and_correct logitle_aruco_msgs/action/A
 --feedback
 ```
 
-ArUco launch 기본 이름은 실행 계정명 마지막 숫자를 기준으로 자동 분리됩니다.
+ArUco Action 이름은 실행 계정명 마지막 숫자를 기준으로 자동 분리됩니다.
 `turtlebot1`은 `tb3_0`, `turtlebot2`는 `tb3_1`, `turtlebot3`는 `tb3_2`를 사용합니다.
-예를 들어 robot3에서는 Action이 `/tb3_2/aruco_align_and_correct`,
-pose topic이 `/tb3_2/aruco/id25/pose_camera`, cmd_vel이 `/tb3_2/cmd_vel`,
-initialpose가 `/tb3_2/initialpose`, TF frame이 `tb3_2/odom`, `tb3_2/base_link` 기준입니다.
-카메라 토픽은 각 로봇 내부에서 기존 `/camera/image_raw`, `/camera/camera_info`를 사용합니다.
+예를 들어 robot3에서는 Action이 `/tb3_2/aruco_align_and_correct`입니다.
+
+실제 로봇 내부 제어/TF는 현재 bringup 구조에 맞춰 namespace 없이 사용합니다.
+
+```text
+cmd_vel: /cmd_vel
+initialpose: /initialpose
+TF: map -> odom -> base_footprint
+camera: /camera/image_raw, /camera/camera_info
+```
 
 로봇별 관제 Action 이름:
 
@@ -121,7 +127,7 @@ Nav2로 5번/6번 노드 근처 이동
 -> Action 서버가 카메라 topic 구독 및 ArUco 검출 시작
 -> ArUco 마커 기준으로 전진/후진 및 회전 미세 정렬
 -> CorrectPoseWithAruco 호출
--> /tb3_2/initialpose로 AMCL/Nav2 위치 보정
+-> /initialpose로 AMCL/Nav2 위치 보정
 -> Action 종료 후 카메라 topic 구독 해제
 ```
 
@@ -134,7 +140,7 @@ Nav2로 5번/6번 노드 근처 이동
 
 ## Pose Correction Action
 
-관제 연동은 robot별 `/tb3_*/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_link` pose를 계산합니다.
+관제 연동은 robot별 `/tb3_*/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_footprint` pose를 계산합니다.
 
 Action 서버는 기본적으로 대기 중에는 카메라 이미지 처리를 하지 않습니다. 관제에서 goal이 들어온 동안에만 `/camera/image_raw`, `/camera/camera_info`를 구독하고 ArUco 검출/pose 계산을 수행한 뒤, goal이 끝나면 구독을 해제합니다.
 
@@ -225,7 +231,7 @@ AMCL/Nav2 등 다른 `map -> odom` publisher와 동시에 실행하지 않습니
 
 ## TF Continuity Check
 
-`aruco_tf_corrector`가 `map -> odom`을 발행 중일 때, 로봇을 천천히 움직이며 `map -> base_link`가 튀지 않고 연속적으로 변하는지 확인합니다.
+`aruco_tf_corrector`가 `map -> odom`을 발행 중일 때, 로봇을 천천히 움직이며 `map -> base_footprint`가 튀지 않고 연속적으로 변하는지 확인합니다.
 
 ```bash
 ros2 launch logitle_aruco_tools logitle_tf_continuity_monitor.launch.py \

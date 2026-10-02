@@ -25,7 +25,7 @@ def generate_launch_description():
     robot_namespace = default_robot_namespace()
     return LaunchDescription([
         DeclareLaunchArgument("parent_frame", default_value="map"),
-        DeclareLaunchArgument("child_frame", default_value=scoped_frame(robot_namespace, "base_link")),
+        DeclareLaunchArgument("child_frame", default_value="base_footprint"),
         DeclareLaunchArgument("sample_period", default_value="0.1"),
         DeclareLaunchArgument("duration_sec", default_value="0.0"),
         DeclareLaunchArgument("jump_xy_threshold", default_value="0.08"),

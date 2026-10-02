@@ -194,7 +194,7 @@ def parse_args():
     robot_namespace = default_robot_namespace()
     parser = argparse.ArgumentParser()
     parser.add_argument("--parent-frame", default="map")
-    parser.add_argument("--child-frame", default=scoped_frame(robot_namespace, "base_link"))
+    parser.add_argument("--child-frame", default="base_footprint")
     parser.add_argument("--sample-period", type=float, default=0.1)
     parser.add_argument("--duration-sec", type=float, default=0.0)
     parser.add_argument("--tf-timeout", type=float, default=0.05)

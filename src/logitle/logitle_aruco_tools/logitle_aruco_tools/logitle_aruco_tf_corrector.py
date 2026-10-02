@@ -343,8 +343,8 @@ def parse_args():
     parser.add_argument("--publish-tf", action="store_true")
 
     parser.add_argument("--map-frame", default="map")
-    parser.add_argument("--odom-frame", default=scoped_frame(robot_namespace, "odom"))
-    parser.add_argument("--base-frame", default=scoped_frame(robot_namespace, "base_link"))
+    parser.add_argument("--odom-frame", default="odom")
+    parser.add_argument("--base-frame", default="base_footprint")
 
     parser.add_argument("--camera-x", type=float, default=0.05)
     parser.add_argument("--camera-y", type=float, default=0.0)

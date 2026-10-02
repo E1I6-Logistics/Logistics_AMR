@@ -833,16 +833,16 @@ def parse_args():
         "--pose-topic-template",
         default=scoped_topic(robot_namespace, "aruco/id{marker_id}/pose_camera"),
     )
-    parser.add_argument("--pose-frame-id", default=scoped_frame(robot_namespace, "camera_optical_frame"))
+    parser.add_argument("--pose-frame-id", default="camera_optical_frame")
     parser.add_argument("--marker-map", default="logitle_marker_map.yaml")
     parser.add_argument("--marker-id", type=int, default=24)
     parser.add_argument("--marker-size", type=float, default=0.04)
     parser.add_argument("--approx-camera-info", type=bool_arg, default=False)
     parser.add_argument("--approx-horizontal-fov-deg", type=float, default=62.2)
 
-    parser.add_argument("--cmd-vel-topic", default=scoped_topic(robot_namespace, "cmd_vel"))
+    parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
     parser.add_argument("--cmd-vel-stamped", type=bool_arg, default=True)
-    parser.add_argument("--cmd-frame-id", default=scoped_frame(robot_namespace, "base_link"))
+    parser.add_argument("--cmd-frame-id", default="base_footprint")
 
     parser.add_argument("--target-x", type=float, default=-0.173)
     parser.add_argument("--target-z", type=float, default=0.392)
