@@ -544,13 +544,24 @@ class AlignAndCorrectActionServer(Node):
         if x_error == 0.0 and z_error == 0.0 and wall_yaw_error == 0.0:
             return 0.0, 0.0, "aligned", x_error, z_error, wall_yaw_error
 
+        # Do not combine heading and lateral image errors into one command.
+        # Turning toward the wall first prevents the two corrections from
+        # fighting each other and keeps the marker in view while aligning.
+        if wall_yaw_error != 0.0:
+            angular_z = clamp(
+                -params["kyaw"] * wall_yaw_error,
+                -params["max_angular"],
+                params["max_angular"],
+            )
+            return 0.0, angular_z, "aligning_wall_yaw", x_error, z_error, wall_yaw_error
+
         angular_z = clamp(
-            -params["kx"] * x_error + params["kyaw"] * wall_yaw_error,
+            -params["kx"] * x_error,
             -params["max_angular"],
             params["max_angular"],
         )
         linear_x = clamp(params["kz"] * z_error, -params["max_linear"], params["max_linear"])
-        return linear_x, angular_z, "aligning", x_error, z_error, wall_yaw_error
+        return linear_x, angular_z, "aligning_position", x_error, z_error, wall_yaw_error
 
     def run_pose_correction(self, goal_handle, marker_id, params):
         timeout_sec = float(params["correct_timeout_sec"])
@@ -929,22 +940,22 @@ def parse_args():
 
     parser.add_argument("--target-x", type=float, default=0.0)
     parser.add_argument("--target-z", type=float, default=0.0)
-    parser.add_argument("--x-tolerance", type=float, default=0.025)
-    parser.add_argument("--z-tolerance", type=float, default=0.025)
+    parser.add_argument("--x-tolerance", type=float, default=0.005)
+    parser.add_argument("--z-tolerance", type=float, default=0.007)
     parser.add_argument("--z-min-stop", type=float, default=0.25)
-    parser.add_argument("--stable-sec", type=float, default=0.5)
-    parser.add_argument("--max-linear", type=float, default=0.025)
-    parser.add_argument("--max-angular", type=float, default=0.10)
-    parser.add_argument("--kx", type=float, default=2.0)
-    parser.add_argument("--kz", type=float, default=0.4)
-    parser.add_argument("--wall-yaw-tolerance-deg", type=float, default=4.0)
-    parser.add_argument("--kyaw", type=float, default=0.8)
+    parser.add_argument("--stable-sec", type=float, default=0.4)
+    parser.add_argument("--max-linear", type=float, default=0.030)
+    parser.add_argument("--max-angular", type=float, default=0.04)
+    parser.add_argument("--kx", type=float, default=0.8)
+    parser.add_argument("--kz", type=float, default=1.2)
+    parser.add_argument("--wall-yaw-tolerance-deg", type=float, default=2.0)
+    parser.add_argument("--kyaw", type=float, default=0.6)
 
     parser.add_argument("--timeout-sec", type=float, default=30.0)
     parser.add_argument("--align-timeout-sec", type=float, default=25.0)
     parser.add_argument("--correct-timeout-sec", type=float, default=10.0)
     parser.add_argument("--required-samples", type=int, default=15)
-    parser.add_argument("--yaw-tolerance-deg", type=float, default=4.0)
+    parser.add_argument("--yaw-tolerance-deg", type=float, default=3.0)
 
     parser.add_argument("--pose-timeout", type=float, default=0.3)
     parser.add_argument("--feedback-period", type=float, default=0.2)
