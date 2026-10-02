@@ -162,7 +162,7 @@ Nav2로 5번/6번 노드 근처 이동
 ```
 
 Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 현장 측정 preset이 자동 적용됩니다.
-예를 들어 6번 좌표의 ID25는 `target_x=-0.173m`, `target_z=0.392m`,
+예를 들어 6번 좌표의 ID25는 `target_x=-0.167m`, `target_z=0.398m`,
 `expected_base_yaw_deg=-87deg` preset을 사용합니다.
 공통 정렬 기준은 `x_tolerance=0.005m`, `z_tolerance=0.007m`,
 `wall_yaw_tolerance_deg=2deg`, `yaw_tolerance_deg=3deg`입니다.
@@ -180,30 +180,30 @@ OpenCV ArUco 검출은 기본 10Hz로 제한하고 카메라 스트림 자체는
 
 ```text
 N3 / ID27
-target_x = 0.004
-target_z = 0.412
+target_x = -0.020
+target_z = 0.403
 check_yaw = false
 비고: 오른쪽 벽 기준, AMCL 수렴 후 yaw 재측정 필요
 
 N4 / ID26
-target_x = -0.004
-target_z = 0.408
+target_x = -0.012
+target_z = 0.381
 check_yaw = false
 비고: 오른쪽 벽 기준, AMCL 수렴 후 yaw 재측정 필요
 
 N5 / ID24
-target_x = -0.184
-target_z = 0.376
+target_x = -0.189
+target_z = 0.389
 expected_base_yaw_deg = -87.0
 
 N5 / ID29
-target_x = 0.186
-target_z = 0.377
+target_x = 0.185
+target_z = 0.382
 expected_base_yaw_deg = -87.0
 
 N6 / ID25
-target_x = -0.173
-target_z = 0.392
+target_x = -0.167
+target_z = 0.398
 expected_base_yaw_deg = -87.0
 ```
 
