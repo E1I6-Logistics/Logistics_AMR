@@ -35,10 +35,7 @@ def normalize_angle(angle: float) -> float:
 
 
 def get_yaw_from_quaternion(q) -> float:
-    """
-    외부 패키지(transforms3d 등) 없이 표준 math 모듈만으로
-    쿼터니언 (x, y, z, w)에서 Z축 회전각(Yaw, 라디안)을 계산합니다.
-    """
+    """쿼터니언 (x, y, z, w)에서 Z축 회전각(Yaw, 라디안)을 계산합니다."""
     siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
     cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
     return math.atan2(siny_cosp, cosy_cosp)
@@ -109,6 +106,7 @@ class PID:
         derivative = (error - self.previous_err) / dt
         output = (self.p * error) + (self.i * self.integral) + (self.d * derivative)
 
+        # Anti-windup clamping
         if output > self.out_max:
             output = self.out_max
             self.integral -= error * dt
@@ -128,6 +126,9 @@ class PrecisionDockingServer(Node):
     def __init__(self):
         super().__init__('precision_docking_server')
         self.cb_group = ReentrantCallbackGroup()
+
+        # 도킹 액션 진행 여부 플래그
+        self.is_docking_active = False
 
         # TF2 버퍼 및 리스너 초기화
         self.tf_buffer = tf2_ros.Buffer()
@@ -164,8 +165,8 @@ class PrecisionDockingServer(Node):
         self.declare_parameter('heading_align_deg', 15.0)
 
         # 최종 Yaw 정렬 파라미터 (logitle_pose / map 기준)
-        self.declare_parameter('final_target_yaw_deg', 0.0)      # 최종 목표 Yaw (deg)
-        self.declare_parameter('final_yaw_tolerance_deg', 0.1)   # 허용 각도 오차 (deg)
+        self.declare_parameter('final_target_yaw_deg', 0.0)
+        self.declare_parameter('final_yaw_tolerance_deg', 0.1)
 
         # logitle_pose 연동 관련 파라미터
         self.declare_parameter('pose_topic', 'logitle_pose')
@@ -176,7 +177,6 @@ class PrecisionDockingServer(Node):
         self.update_parameters()
         self.add_on_set_parameters_callback(self.parameter_callback)
 
-        # /logitle_pose 토픽 구독
         self.latest_logitle_pose = None
         self.pose_sub = self.create_subscription(
             PoseStamped,
@@ -189,15 +189,15 @@ class PrecisionDockingServer(Node):
         self.latest_source_pts = None
 
         self.linear_pid = PID(p=0.2, i=0.2, d=0.05, out_min=-0.6, out_max=0.03)
-        self.angular_pid = PID(p=1, i=0.5, d=0.20, out_min=-0.12, out_max=0.35)
+        self.angular_pid = PID(p=1.0, i=0.5, d=0.20, out_min=-0.12, out_max=0.35)
         self.final_yaw_pid = PID(p=0.8, i=0.0, d=0.10, out_min=-0.12, out_max=0.25)
 
         self.dist_tolerance = 0.001
-
-        self.get_logger().info('2단계(ICP -> logitle_pose Yaw 정렬) 정밀 도킹 서버 준비 완료.')
+        self.get_logger().info('정밀 도킹 액션 서버 초기화 완료. 액션 요청 대기 중...')
 
     def logitle_pose_callback(self, msg: PoseStamped):
-        """/logitle_pose 토픽 콜백: 최신 글로벌 포즈 갱신"""
+        if not self.is_docking_active:
+            return
         self.latest_logitle_pose = msg
 
     def update_parameters(self):
@@ -260,6 +260,10 @@ class PrecisionDockingServer(Node):
         return est_charger_w, est_wing_len, est_angle_deg
 
     def scan_callback(self, msg: LaserScan):
+        # 액션 요청이 활성화되지 않은 상태에서는 점군 연산 skip
+        if not self.is_docking_active:
+            return
+
         ranges = np.array(msg.ranges)
         angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
 
@@ -284,29 +288,24 @@ class PrecisionDockingServer(Node):
             self.latest_source_pts = None
 
     def get_current_logitle_yaw(self) -> float:
-        """
-        logitle_pose 토픽(/logitle_pose) 또는 TF(map -> base_footprint)로부터
-        글로벌 지도(map) 기준 로봇의 현재 Yaw 각도를 계산합니다.
-        """
         if self.use_logitle_pose_topic and self.latest_logitle_pose is not None:
             q = self.latest_logitle_pose.pose.orientation
             return get_yaw_from_quaternion(q)
 
-        # 토픽이 아직 수신되지 않았거나 비활성화된 경우 TF에서 직접 조회 (fallback)
         t = self.tf_buffer.lookup_transform(self.global_frame, self.base_frame, rp.time.Time())
         return get_yaw_from_quaternion(t.transform.rotation)
 
-    def get_current_odom_yaw(self) -> float:
-        """TF 버퍼에서 odom -> base_link Yaw 각도를 순수 math 함수로 추출합니다."""
-        t = self.tf_buffer.lookup_transform('odom', 'base_link', rp.time.Time())
-        return get_yaw_from_quaternion(t.transform.rotation)
-
     def goal_callback(self, goal_request):
+        # 이미 다른 도킹 액션이 진행 중이면 새 요청 거절
+        if self.is_docking_active:
+            self.get_logger().warn('이미 도킹 작업이 진행 중입니다. 새 요청 거부.')
+            return GoalResponse.REJECT
+
         self.get_logger().info('도킹 액션 요청 수락')
         return GoalResponse.ACCEPT
 
     def cancel_callback(self, goal_handle):
-        self.get_logger().warn('도킹 액션 취소 요청')
+        self.get_logger().warn('도킹 액션 취소 요청 수락')
         return CancelResponse.ACCEPT
 
     def publish_cmd_vel(self, v: float, w: float):
@@ -321,11 +320,16 @@ class PrecisionDockingServer(Node):
         self.publish_cmd_vel(0.0, 0.0)
 
     def execute_callback(self, goal_handle):
-        self.get_logger().info('도킹 시퀀스 가동 (상태 머신 시작)')
-        state = DockingState.INIT
+        # 1. 액션 활성화 플래그 및 이전 상태 초기화
+        self.is_docking_active = True
+        self.latest_source_pts = None
+        self.latest_logitle_pose = None
         self.angular_pid.reset()
         self.linear_pid.reset()
         self.final_yaw_pid.reset()
+
+        self.get_logger().info('도킹 시퀀스 가동 (상태 머신 시작)')
+        state = DockingState.INIT
 
         active_target_pts = None
         current_transform = np.identity(3)
@@ -338,185 +342,182 @@ class PrecisionDockingServer(Node):
         rate = self.create_rate(20.0)
         last_time = self.get_clock().now()
 
-        while rp.ok():
-            if goal_handle.is_cancel_requested:
-                goal_handle.canceled()
-                self.publish_stop()
-                return PrecisionDock.Result(success=False, message="Canceled")
-
-            current_time = self.get_clock().now()
-            dt = (current_time - last_time).nanoseconds / 1e9
-            last_time = current_time
-
-            # -------------------------------------------------------------
-            # [STATE 0: INIT] 점군 수신 대기 및 가상 템플릿 생성
-            # -------------------------------------------------------------
-            if state == DockingState.INIT:
-                if self.latest_source_pts is None:
+        try:
+            while rp.ok():
+                if goal_handle.is_cancel_requested:
+                    goal_handle.canceled()
                     self.publish_stop()
-                    rate.sleep()
-                    continue
+                    return PrecisionDock.Result(success=False, message="Canceled")
 
-                req_pos = goal_handle.request.target_pose.pose.position
-                if req_pos.y <= 0.0 or req_pos.z <= 0.0:
-                    estimated = self.auto_estimate_v_funnel_params(self.latest_source_pts)
-                    if estimated is not None:
-                        w, l, ang = estimated
+                current_time = self.get_clock().now()
+                dt = (current_time - last_time).nanoseconds / 1e9
+                last_time = current_time
+
+                # [STATE 0: INIT]
+                if state == DockingState.INIT:
+                    if self.latest_source_pts is None:
+                        self.publish_stop()
+                        rate.sleep()
+                        continue
+
+                    req_pos = goal_handle.request.target_pose.pose.position
+                    if req_pos.y <= 0.0 or req_pos.z <= 0.0:
+                        estimated = self.auto_estimate_v_funnel_params(self.latest_source_pts)
+                        if estimated is not None:
+                            w, l, ang = estimated
+                        else:
+                            w, l, ang = self.charger_width, self.wing_length, self.wing_angle_deg
                     else:
-                        w, l, ang = self.charger_width, self.wing_length, self.wing_angle_deg
-                else:
-                    w, l, ang = req_pos.y, req_pos.z, self.wing_angle_deg
+                        w, l, ang = req_pos.y, req_pos.z, self.wing_angle_deg
 
-                safe_gap = self.robot_rear_length + 0.005
-                gap = req_pos.x if req_pos.x > 0.0 else safe_gap
-                active_target_pts = self.generate_v_funnel_target(w, l, ang, gap)
+                    safe_gap = self.robot_rear_length + 0.005
+                    gap = req_pos.x if req_pos.x > 0.0 else safe_gap
+                    active_target_pts = self.generate_v_funnel_target(w, l, ang, gap)
 
-                self.get_logger().info('>> [상태 전이] INIT -> ICP_APPROACH (1차 도킹 후진)')
-                state = DockingState.ICP_APPROACH
+                    self.get_logger().info('>> [상태 전이] INIT -> ICP_APPROACH (1차 도킹 후진)')
+                    state = DockingState.ICP_APPROACH
 
-            # -------------------------------------------------------------
-            # [STATE 1: ICP_APPROACH] 1차 도킹 (ICP 기반 접근 주행)
-            # -------------------------------------------------------------
-            elif state == DockingState.ICP_APPROACH:
-                if self.latest_source_pts is None:
-                    self.publish_stop()
-                    if dist_err < self.blind_spot_dist:
-                        self.get_logger().info('사각지대 진입 감지 -> ALIGN_YAW 상태로 전이')
-                        state = DockingState.ALIGN_YAW
-                    rate.sleep()
-                    continue
+                # [STATE 1: ICP_APPROACH]
+                elif state == DockingState.ICP_APPROACH:
+                    if self.latest_source_pts is None:
+                        self.publish_stop()
+                        if dist_err < self.blind_spot_dist:
+                            self.get_logger().info('사각지대 진입 감지 -> ALIGN_YAW 상태로 전이')
+                            state = DockingState.ALIGN_YAW
+                        rate.sleep()
+                        continue
 
-                pts = self.latest_source_pts
-                if len(pts) > 0:
-                    lidar_to_wall_dist = abs(np.min(pts[:, 0]))
-                    rear_to_wall_dist = lidar_to_wall_dist - self.robot_rear_length
-                    if rear_to_wall_dist <= self.safety_stop_dist:
-                        self.get_logger().info('후미 완전 밀착 안전 거리 도달 -> ALIGN_YAW 상태로 전이')
+                    pts = self.latest_source_pts
+                    if len(pts) > 0:
+                        lidar_to_wall_dist = abs(np.min(pts[:, 0]))
+                        rear_to_wall_dist = lidar_to_wall_dist - self.robot_rear_length
+                        if rear_to_wall_dist <= self.safety_stop_dist:
+                            self.get_logger().info('후미 완전 밀착 안전 거리 도달 -> ALIGN_YAW 상태로 전이')
+                            self.publish_stop()
+                            state = DockingState.ALIGN_YAW
+                            continue
+
+                    search_r = 1.5 if is_first_frame else 0.35
+                    current_transform, fitness, match_cnt = icp_2d(
+                        self.latest_source_pts, active_target_pts,
+                        initial_transform=current_transform, max_iterations=35, search_radius=search_r
+                    )
+
+                    if match_cnt < 10:
+                        icp_fail_count += 1
+                        if icp_fail_count > 5:
+                            self.get_logger().warn('ICP 매칭 연속 실패, 초기 위치 복원!')
+                            current_transform = np.identity(3)
+                            is_first_frame = True
+                            icp_fail_count = 0
+                        self.publish_stop()
+                        rate.sleep()
+                        continue
+
+                    icp_fail_count = 0
+                    is_first_frame = False
+
+                    T = current_transform
+                    R_mat = T[:2, :2]
+                    t_vec = T[:2, 2]
+
+                    rel_pos = -R_mat.T @ t_vec
+                    rel_x, rel_y = rel_pos[0], rel_pos[1]
+                    rel_yaw = normalize_angle(-math.atan2(R_mat[1, 0], R_mat[0, 0]))
+                    dist_err = math.hypot(rel_x, rel_y)
+
+                    feedback_msg.distance_remaining = float(dist_err)
+                    feedback_msg.angle_remaining = float(rel_yaw)
+                    goal_handle.publish_feedback(feedback_msg)
+
+                    if dist_err < self.dist_tolerance and abs(rel_y) < 0.015 and fitness > 0.4:
+                        self.get_logger().info('ICP 허용 오차 도달 -> ALIGN_YAW 상태로 전이')
                         self.publish_stop()
                         state = DockingState.ALIGN_YAW
                         continue
 
-                search_r = 1.5 if is_first_frame else 0.35
-                current_transform, fitness, match_cnt = icp_2d(
-                    self.latest_source_pts, active_target_pts,
-                    initial_transform=current_transform, max_iterations=35, search_radius=search_r
-                )
+                    lookahead_dist = 0.25
+                    raw_correction = math.atan2(rel_y, lookahead_dist)
+                    clamped_correction = float(np.clip(raw_correction, -math.radians(35.0), math.radians(35.0)))
+                    total_heading_err = normalize_angle(rel_yaw - clamped_correction)
 
-                if match_cnt < 10:
-                    icp_fail_count += 1
-                    if icp_fail_count > 5:
-                        self.get_logger().warn('ICP 매칭 연속 실패, 초기 위치 복원!')
-                        current_transform = np.identity(3)
-                        is_first_frame = True
-                        icp_fail_count = 0
+                    if abs(total_heading_err) > math.radians(self.heading_align_deg):
+                        v_cmd = 0.0
+                        w_raw = self.angular_pid.update(total_heading_err, dt)
+                        w_cmd = float(np.clip(w_raw, -0.35, 0.35))
+                    else:
+                        max_v, max_w, min_v = 0.035, 0.30, 0.008
+                        if dist_err < 0.35:
+                            max_v, max_w = 0.012, 0.35
+
+                        heading_damping = max(0.0, math.cos(total_heading_err))
+                        speed_mag = self.linear_pid.update(dist_err, dt)
+
+                        v_cmd = -float(np.clip(speed_mag * heading_damping, min_v, max_v))
+                        w_raw = self.angular_pid.update(total_heading_err, dt)
+                        w_cmd = float(np.clip(w_raw, -max_w, max_w))
+
+                    self.publish_cmd_vel(v_cmd, w_cmd)
+
+                # [STATE 2: ALIGN_YAW]
+                elif state == DockingState.ALIGN_YAW:
+                    try:
+                        current_yaw = self.get_current_logitle_yaw()
+                    except Exception as e:
+                        self.get_logger().warn(f'logitle_pose / TF 룩업 대기 중: {e}')
+                        self.publish_stop()
+                        rate.sleep()
+                        continue
+
+                    req_ori = goal_handle.request.target_pose.pose.orientation
+                    norm_q = req_ori.x**2 + req_ori.y**2 + req_ori.z**2 + req_ori.w**2
+                    if norm_q > 0.5:
+                        target_yaw = get_yaw_from_quaternion(req_ori)
+                    else:
+                        target_yaw = self.final_target_yaw_rad
+
+                    yaw_error = normalize_angle(target_yaw - current_yaw)
+
+                    feedback_msg.distance_remaining = 0.0
+                    feedback_msg.angle_remaining = float(yaw_error)
+                    goal_handle.publish_feedback(feedback_msg)
+
+                    if abs(yaw_error) <= self.final_yaw_tolerance_rad:
+                        self.get_logger().info(
+                            f'최종 정렬 완료! 오차: {math.degrees(yaw_error):.2f}° '
+                            f'(현재: {math.degrees(current_yaw):.2f}°, 목표: {math.degrees(target_yaw):.2f}°)'
+                        )
+                        self.publish_stop()
+                        state = DockingState.COMPLETED
+                        success_message = (
+                            f"Successfully docked and aligned to {math.degrees(target_yaw):.1f} deg"
+                        )
+                        continue
+
+                    w_out = self.final_yaw_pid.update(yaw_error, dt)
+                    w_cmd = float(np.clip(w_out, -0.20, 0.20))
+
+                    if abs(w_cmd) < 0.03:
+                        w_cmd = 0.03 if w_cmd > 0 else -0.03
+
+                    self.publish_cmd_vel(0.0, w_cmd)
+
+                # [STATE 3: COMPLETED]
+                elif state == DockingState.COMPLETED:
                     self.publish_stop()
-                    rate.sleep()
-                    continue
+                    goal_handle.succeed()
+                    return PrecisionDock.Result(success=True, message=success_message)
 
-                icp_fail_count = 0
-                is_first_frame = False
+                rate.sleep()
 
-                T = current_transform
-                R_mat = T[:2, :2]
-                t_vec = T[:2, 2]
+            self.publish_stop()
+            goal_handle.abort()
+            return PrecisionDock.Result(success=False, message="Aborted")
 
-                rel_pos = -R_mat.T @ t_vec
-                rel_x, rel_y = rel_pos[0], rel_pos[1]
-                rel_yaw = normalize_angle(-math.atan2(R_mat[1, 0], R_mat[0, 0]))
-                dist_err = math.hypot(rel_x, rel_y)
-
-                feedback_msg.distance_remaining = float(dist_err)
-                feedback_msg.angle_remaining = float(rel_yaw)
-                goal_handle.publish_feedback(feedback_msg)
-
-                if dist_err < self.dist_tolerance and abs(rel_y) < 0.015 and fitness > 0.4:
-                    self.get_logger().info('ICP 허용 오차 도달 -> ALIGN_YAW 상태로 전이')
-                    self.publish_stop()
-                    state = DockingState.ALIGN_YAW
-                    continue
-
-                lookahead_dist = 0.25
-                raw_correction = math.atan2(rel_y, lookahead_dist)
-                clamped_correction = float(np.clip(raw_correction, -math.radians(35.0), math.radians(35.0)))
-                total_heading_err = normalize_angle(rel_yaw - clamped_correction)
-
-                if abs(total_heading_err) > math.radians(self.heading_align_deg):
-                    v_cmd = 0.0
-                    w_raw = self.angular_pid.update(total_heading_err, dt)
-                    w_cmd = float(np.clip(w_raw, -0.35, 0.35))
-                else:
-                    max_v, max_w, min_v = 0.035, 0.30, 0.008
-                    if dist_err < 0.35:
-                        max_v, max_w = 0.012, 0.35
-
-                    heading_damping = max(0.0, math.cos(total_heading_err))
-                    speed_mag = self.linear_pid.update(dist_err, dt)
-
-                    v_cmd = -float(np.clip(speed_mag * heading_damping, min_v, max_v))
-                    w_raw = self.angular_pid.update(total_heading_err, dt)
-                    w_cmd = float(np.clip(w_raw, -max_w, max_w))
-
-                self.publish_cmd_vel(v_cmd, w_cmd)
-
-            # -------------------------------------------------------------
-            # [STATE 2: ALIGN_YAW] 2차 정렬 (logitle_pose / map 기준 최종 Yaw 정렬)
-            # -------------------------------------------------------------
-            elif state == DockingState.ALIGN_YAW:
-                try:
-                    current_yaw = self.get_current_logitle_yaw()
-                except Exception as e:
-                    self.get_logger().warn(f'logitle_pose / TF 룩업 대기 중: {e}')
-                    self.publish_stop()
-                    rate.sleep()
-                    continue
-
-                # 목표 Yaw 산출: target_pose orientation 지정 시 우선 사용, 미지정 시 파라미터 값 사용
-                req_ori = goal_handle.request.target_pose.pose.orientation
-                norm_q = req_ori.x**2 + req_ori.y**2 + req_ori.z**2 + req_ori.w**2
-                if norm_q > 0.5:
-                    target_yaw = get_yaw_from_quaternion(req_ori)
-                else:
-                    target_yaw = self.final_target_yaw_rad
-
-                yaw_error = normalize_angle(target_yaw - current_yaw)
-
-                feedback_msg.distance_remaining = 0.0
-                feedback_msg.angle_remaining = float(yaw_error)
-                goal_handle.publish_feedback(feedback_msg)
-
-                if abs(yaw_error) <= self.final_yaw_tolerance_rad:
-                    self.get_logger().info(
-                        f'logitle_pose 기준 최종 정렬 완료! 오차: {math.degrees(yaw_error):.2f}° '
-                        f'(현재: {math.degrees(current_yaw):.2f}°, 목표: {math.degrees(target_yaw):.2f}°)'
-                    )
-                    self.publish_stop()
-                    state = DockingState.COMPLETED
-                    success_message = (
-                        f"Successfully docked and aligned to {math.degrees(target_yaw):.1f} deg based on logitle_pose"
-                    )
-                    continue
-
-                w_out = self.final_yaw_pid.update(yaw_error, dt)
-                w_cmd = float(np.clip(w_out, -0.20, 0.20))
-
-                if abs(w_cmd) < 0.03:
-                    w_cmd = 0.03 if w_cmd > 0 else -0.03
-
-                self.publish_cmd_vel(0.0, w_cmd)
-
-            # -------------------------------------------------------------
-            # [STATE 3: COMPLETED] 성공 반환
-            # -------------------------------------------------------------
-            elif state == DockingState.COMPLETED:
-                self.publish_stop()
-                goal_handle.succeed()
-                return PrecisionDock.Result(success=True, message=success_message)
-
-            rate.sleep()
-
-        self.publish_stop()
-        goal_handle.abort()
-        return PrecisionDock.Result(success=False, message="Aborted")
+        finally:
+            # 성공/실패/예외 어떤 상황에서도 정지 명령 및 플래그 해제
+            self.publish_stop()
+            self.is_docking_active = False
 
 
 def main(args=None):
