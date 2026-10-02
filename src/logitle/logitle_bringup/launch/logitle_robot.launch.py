@@ -3,6 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -11,6 +12,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     bringup_dir = get_package_share_directory('turtlebot3_bringup')
     nav2_dir = get_package_share_directory('turtlebot3_navigation2')
+    aruco_tools_dir = get_package_share_directory('logitle_aruco_tools')
 
     # ============================================================
     # Robot별 초기 위치
@@ -30,6 +32,7 @@ def generate_launch_description():
         last_char,
         ['0.0', '0.0', '0.0']
     )
+    use_camera_default = 'true' if last_char == '3' else 'false'
 
     # ============================================================
     # Launch Configuration
@@ -38,6 +41,8 @@ def generate_launch_description():
     map_yaml_file = LaunchConfiguration('map')
     mask_yaml_file = LaunchConfiguration('mask')
     use_sim_time = LaunchConfiguration('use_sim_time')
+    use_camera = LaunchConfiguration('use_camera')
+    use_aruco = LaunchConfiguration('use_aruco')
 
     initial_pose_x = LaunchConfiguration('initial_pose_x')
     initial_pose_y = LaunchConfiguration('initial_pose_y')
@@ -61,6 +66,18 @@ def generate_launch_description():
         'use_sim_time',
         default_value='false',
         description='Use simulation clock if true'
+    )
+
+    declare_use_camera_cmd = DeclareLaunchArgument(
+        'use_camera',
+        default_value=use_camera_default,
+        description='Launch camera_ros camera node. Defaults to true on robot3.'
+    )
+
+    declare_use_aruco_cmd = DeclareLaunchArgument(
+        'use_aruco',
+        default_value='true',
+        description='Launch ArUco alignment/correction action servers.'
     )
 
     declare_mask_yaml_cmd = DeclareLaunchArgument(
@@ -111,6 +128,17 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': use_sim_time
         }.items()
+    )
+
+    camera_cmd = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                bringup_dir,
+                'launch',
+                'camera.launch.py'
+            )
+        ),
+        condition=IfCondition(use_camera),
     )
 
     # ============================================================
@@ -194,6 +222,24 @@ def generate_launch_description():
     )
 
     # ============================================================
+    # 5. ArUco Alignment / Pose Correction
+    #
+    # Action servers only.
+    # Camera image processing starts when an Action goal is received.
+    # ============================================================
+
+    aruco_align_and_correct_cmd = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                aruco_tools_dir,
+                'launch',
+                'logitle_aruco_align_and_correct.launch.py'
+            )
+        ),
+        condition=IfCondition(use_aruco),
+    )
+
+    # ============================================================
     # Launch Description
     # ============================================================
 
@@ -202,6 +248,8 @@ def generate_launch_description():
     # Arguments
     ld.add_action(declare_map_yaml_cmd)
     ld.add_action(declare_use_sim_time_cmd)
+    ld.add_action(declare_use_camera_cmd)
+    ld.add_action(declare_use_aruco_cmd)
     ld.add_action(declare_mask_yaml_cmd)
 
     ld.add_action(declare_initial_pose_x_cmd)
@@ -210,8 +258,10 @@ def generate_launch_description():
 
     # Nodes / Launches
     ld.add_action(bringup_cmd)
+    ld.add_action(camera_cmd)
     ld.add_action(nav2_cmd)
     ld.add_action(logitle_pose_node)
     ld.add_action(docking_node)
+    ld.add_action(aruco_align_and_correct_cmd)
 
     return ld

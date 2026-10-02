@@ -38,3 +38,39 @@ markers:
     roll_deg: 0.0
     size: 0.0400
     note: "logitle_route 6번 좌표 기준 중심 왼쪽(map +X) 17.5cm, 벽 방향(map -Y) 40.5cm / 아래 변 높이 12.2cm + 4.0cm marker size/2"
+
+  - id: 28
+    x: 1.3443385363
+    y: -0.6699184167
+    z: 0.156
+    yaw_deg: 90.0
+    roll_deg: 0.0
+    size: 0.0400
+    note: "ID25 오른쪽(map -X) / ID25 안쪽 변에서 ID28 시작 변까지 38.5cm + marker size 4.0cm = 중심 간 42.5cm / 아래 변 높이 13.6cm + 4.0cm marker size/2"
+
+  - id: 29
+    x: 0.5175766435
+    y: -0.6782363343
+    z: 0.156
+    yaw_deg: 90.0
+    roll_deg: 0.0
+    size: 0.0400
+    note: "ID24 오른쪽(map -X) / ID24 안쪽 변에서 ID29 시작 변까지 41.1cm + marker size 4.0cm = 중심 간 45.1cm / 아래 변 높이 13.6cm + 4.0cm marker size/2"
+
+  - id: 26
+    x: 2.1602067280
+    y: 0.4128017724
+    z: 0.215
+    yaw_deg: 180.0
+    roll_deg: 0.0
+    size: 0.0400
+    note: "logitle_route 4번 좌표 기준 오른쪽 벽 방향(map +X) 43.0cm / 아래 변 높이 19.5cm + 4.0cm marker size/2"
+
+  - id: 27
+    x: 2.1420175314
+    y: 0.1040047556
+    z: 0.209
+    yaw_deg: 180.0
+    roll_deg: 0.0
+    size: 0.0400
+    note: "logitle_route 3번 좌표 기준 오른쪽 벽 방향(map +X) 42.5cm / 아래 변 높이 18.9cm + 4.0cm marker size/2"

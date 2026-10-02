@@ -7,15 +7,34 @@ Use --enable-motion only after checking the signs with the wheels lifted.
 """
 
 import argparse
+import os
+import sys
 import time
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, Twist, TwistStamped
 from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
 
 
 def clamp(value, low, high):
     return max(low, min(high, value))
+
+
+def default_robot_namespace():
+    return {
+        "1": "tb3_0",
+        "2": "tb3_1",
+        "3": "tb3_2",
+    }.get(os.environ.get("USER", "")[-1:], "")
+
+
+def scoped_topic(namespace, name):
+    return f"/{namespace}/{name}" if namespace else f"/{name}"
+
+
+def scoped_frame(namespace, name):
+    return f"{namespace}/{name}" if namespace else name
 
 
 class ArucoAutoAlign(Node):
@@ -119,11 +138,12 @@ class ArucoAutoAlign(Node):
 
 
 def parse_args():
+    robot_namespace = default_robot_namespace()
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pose-topic", default="/aruco/id24/pose_camera")
-    parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
+    parser.add_argument("--pose-topic", default=scoped_topic(robot_namespace, "aruco/id24/pose_camera"))
+    parser.add_argument("--cmd-vel-topic", default=scoped_topic(robot_namespace, "cmd_vel"))
     parser.add_argument("--cmd-vel-stamped", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--cmd-frame-id", default="base_link")
+    parser.add_argument("--cmd-frame-id", default=scoped_frame(robot_namespace, "base_link"))
     parser.add_argument("--enable-motion", action="store_true")
 
     parser.add_argument("--x-tol", type=float, default=0.02)
@@ -138,7 +158,7 @@ def parse_args():
 
     parser.add_argument("--pose-timeout", type=float, default=0.3)
     parser.add_argument("--print-period", type=float, default=0.2)
-    return parser.parse_args()
+    return parser.parse_args(remove_ros_args(args=sys.argv)[1:])
 
 
 def main():

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Launch ArUco map->odom TF correction."""
 
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition, UnlessCondition
@@ -9,7 +11,23 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-def _corrector_node(publish_tf):
+def default_robot_namespace():
+    return {
+        "1": "tb3_0",
+        "2": "tb3_1",
+        "3": "tb3_2",
+    }.get(os.environ.get("USER", "")[-1:], "")
+
+
+def scoped_topic(namespace, name):
+    return f"/{namespace}/{name}" if namespace else f"/{name}"
+
+
+def scoped_frame(namespace, name):
+    return f"{namespace}/{name}" if namespace else name
+
+
+def _corrector_node(robot_namespace, publish_tf):
     args = [
         "--pose-topic",
         LaunchConfiguration("pose_topic"),
@@ -55,6 +73,7 @@ def _corrector_node(publish_tf):
         package="logitle_aruco_tools",
         executable="logitle_aruco_tf_corrector",
         name="aruco_tf_corrector",
+        namespace=robot_namespace,
         output="screen",
         arguments=args,
         condition=IfCondition(LaunchConfiguration("publish_tf"))
@@ -64,6 +83,7 @@ def _corrector_node(publish_tf):
 
 
 def generate_launch_description():
+    robot_namespace = default_robot_namespace()
     default_marker_map = PathJoinSubstitution([
         FindPackageShare("logitle_aruco_tools"),
         "config",
@@ -71,12 +91,12 @@ def generate_launch_description():
     ])
 
     return LaunchDescription([
-        DeclareLaunchArgument("pose_topic", default_value="/aruco/id24/pose_camera"),
+        DeclareLaunchArgument("pose_topic", default_value=scoped_topic(robot_namespace, "aruco/id24/pose_camera")),
         DeclareLaunchArgument("marker_map", default_value=default_marker_map),
         DeclareLaunchArgument("marker_id", default_value="24"),
         DeclareLaunchArgument("map_frame", default_value="map"),
-        DeclareLaunchArgument("odom_frame", default_value="odom"),
-        DeclareLaunchArgument("base_frame", default_value="base_link"),
+        DeclareLaunchArgument("odom_frame", default_value=scoped_frame(robot_namespace, "odom")),
+        DeclareLaunchArgument("base_frame", default_value=scoped_frame(robot_namespace, "base_link")),
         DeclareLaunchArgument("camera_x", default_value="0.045"),
         DeclareLaunchArgument("camera_y", default_value="0.0"),
         DeclareLaunchArgument("camera_z", default_value="0.115"),
@@ -90,6 +110,6 @@ def generate_launch_description():
         DeclareLaunchArgument("median_window", default_value="15"),
         DeclareLaunchArgument("stale_timeout", default_value="1.0"),
         DeclareLaunchArgument("publish_tf", default_value="false"),
-        _corrector_node(publish_tf=False),
-        _corrector_node(publish_tf=True),
+        _corrector_node(robot_namespace, publish_tf=False),
+        _corrector_node(robot_namespace, publish_tf=True),
     ])

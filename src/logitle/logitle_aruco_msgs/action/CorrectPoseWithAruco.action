@@ -8,8 +8,8 @@ int32 required_samples 15
 float32 outlier_z_max 0.15
 float32 outlier_tilt_deg 25.0
 bool check_yaw true
-float32 expected_base_yaw_deg -90.0
-float32 yaw_tolerance_deg 4.0
+float32 expected_base_yaw_deg -87.0
+float32 yaw_tolerance_deg 3.0
 
 ---
 # Result
