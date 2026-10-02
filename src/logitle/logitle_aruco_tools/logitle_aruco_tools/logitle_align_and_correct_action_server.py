@@ -37,8 +37,10 @@ RESULT_ALIGN_FAILED = AlignAndCorrectWithAruco.Result.RESULT_ALIGN_FAILED
 RESULT_CORRECTION_FAILED = AlignAndCorrectWithAruco.Result.RESULT_CORRECTION_FAILED
 RESULT_INVALID_GOAL = AlignAndCorrectWithAruco.Result.RESULT_INVALID_GOAL
 
-ACTION_DEFAULT_TARGET_X = -0.173
-ACTION_DEFAULT_TARGET_Z = 0.392
+ACTION_DEFAULT_TARGET_X = 0.0
+ACTION_DEFAULT_TARGET_Z = 0.0
+LEGACY_ACTION_DEFAULT_TARGET_X = -0.173
+LEGACY_ACTION_DEFAULT_TARGET_Z = 0.392
 ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG = -87.0
 ACTION_DEFAULT_YAW_TOLERANCE_DEG = 3.0
 
@@ -317,9 +319,17 @@ class AlignAndCorrectActionServer(Node):
         yaw_tolerance_deg = positive_or_default(goal.yaw_tolerance_deg, self.args.yaw_tolerance_deg)
 
         if preset:
-            if is_close(goal.target_x, ACTION_DEFAULT_TARGET_X):
+            target_x_omitted = is_close(goal.target_x, ACTION_DEFAULT_TARGET_X) or is_close(
+                goal.target_x,
+                LEGACY_ACTION_DEFAULT_TARGET_X,
+            )
+            target_z_omitted = is_close(goal.target_z, ACTION_DEFAULT_TARGET_Z) or is_close(
+                goal.target_z,
+                LEGACY_ACTION_DEFAULT_TARGET_Z,
+            )
+            if target_x_omitted:
                 target_x = float(preset["target_x"])
-            if is_close(goal.target_z, ACTION_DEFAULT_TARGET_Z):
+            if target_z_omitted:
                 target_z = float(preset["target_z"])
             if bool(goal.check_yaw) and preset["check_yaw"] is False:
                 check_yaw = False
@@ -917,8 +927,8 @@ def parse_args():
     parser.add_argument("--cmd-vel-stamped", type=bool_arg, default=True)
     parser.add_argument("--cmd-frame-id", default="base_footprint")
 
-    parser.add_argument("--target-x", type=float, default=-0.173)
-    parser.add_argument("--target-z", type=float, default=0.392)
+    parser.add_argument("--target-x", type=float, default=0.0)
+    parser.add_argument("--target-z", type=float, default=0.0)
     parser.add_argument("--x-tolerance", type=float, default=0.025)
     parser.add_argument("--z-tolerance", type=float, default=0.025)
     parser.add_argument("--z-min-stop", type=float, default=0.25)

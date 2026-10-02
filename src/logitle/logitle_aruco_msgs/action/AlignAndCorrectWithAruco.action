@@ -5,8 +5,8 @@ float32 timeout_sec 30.0
 float32 align_timeout_sec 25.0
 float32 correct_timeout_sec 10.0
 
-float32 target_x -0.173
-float32 target_z 0.392
+float32 target_x 0.0
+float32 target_z 0.0
 float32 x_tolerance 0.005
 float32 z_tolerance 0.007
 float32 z_min_stop 0.25

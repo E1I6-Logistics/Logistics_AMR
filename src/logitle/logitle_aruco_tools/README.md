@@ -152,15 +152,17 @@ Nav2로 5번/6번 노드 근처 이동
 -> Action 종료 후 카메라 topic 구독 해제
 ```
 
-6번 좌표에서 벽을 정면으로 바라본 정상 측정값과 현장 거리 보정 결과를 기준으로 기본 정렬 목표는
-`marker_id=25`, `target_x=-0.173m`, `target_z=0.392m`,
-`x_tolerance=0.005m`, `z_tolerance=0.007m`, `wall_yaw_tolerance_deg=1deg`,
-`expected_base_yaw_deg=-87deg`, `yaw_tolerance_deg=3deg`입니다.
+Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 현장 측정 preset이 자동 적용됩니다.
+예를 들어 6번 좌표의 ID25는 `target_x=-0.173m`, `target_z=0.392m`,
+`expected_base_yaw_deg=-87deg` preset을 사용합니다.
+공통 정렬 기준은 `x_tolerance=0.005m`, `z_tolerance=0.007m`,
+`wall_yaw_tolerance_deg=1deg`, `yaw_tolerance_deg=3deg`입니다.
 `target_x`는 카메라 기준에서 마커가 보이는 정상 위치이며, 마커를 화면 정중앙(`x=0`)으로
 맞추는 값이 아닙니다. 마커가 보이는 범위 안에서만 정렬할 수 있으며, pose가 끊기면 즉시 정지합니다.
 
 현장 측정값을 기준으로 marker별 정렬 preset을 코드에 포함합니다. 관제가 `target_x`, `target_z`,
-`expected_base_yaw_deg`를 생략하면 아래 preset이 적용됩니다.
+`expected_base_yaw_deg`를 생략하면 아래 preset이 적용됩니다. Action 정의의 `target_x=0.0`,
+`target_z=0.0`은 생략값을 의미하며, 실제 정렬 목표가 아닙니다.
 
 ```text
 N3 / ID27
