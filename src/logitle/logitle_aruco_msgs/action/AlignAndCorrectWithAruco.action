@@ -17,7 +17,7 @@ float32 max_angular 0.04
 float32 min_angular 0.020
 float32 kx 0.8
 float32 kz 1.2
-bool check_wall_yaw true
+bool check_wall_yaw false
 float32 wall_yaw_tolerance_deg 2.0
 float32 kyaw 0.6
 

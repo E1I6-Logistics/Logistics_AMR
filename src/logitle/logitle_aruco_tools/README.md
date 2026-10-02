@@ -166,15 +166,19 @@ Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 �
 `expected_base_yaw_deg=-87deg` preset을 사용합니다.
 공통 정렬 기준은 `x_tolerance=0.005m`, `z_tolerance=0.007m`,
 `wall_yaw_tolerance_deg=2deg`, `yaw_tolerance_deg=3deg`입니다.
+`check_wall_yaw` 기본값은 `false`입니다. 단일 마커의 벽 방향 추정이 두 방향으로
+튀는 현장에서 정렬이 발산하는 것을 막기 위한 설정입니다. 필요한 경우에만 Goal에서
+`check_wall_yaw: true`를 명시해 벽 방향 정렬을 활성화합니다. `check_yaw`는 정렬 후
+pose correction 단계에서 AMCL 초기 자세 기준을 검사하는 별도 조건이며 서로 독립적입니다.
 회전 제어는 `max_angular=0.04rad/s`, `min_angular=0.020rad/s`를 사용합니다.
 계산된 회전 명령이 0이 아닌 경우에는 모터 데드밴드에 걸리지 않도록 최소값을 적용하고,
 최대값은 계속 `0.04rad/s`로 제한합니다. 이 값은 현재의 임시 피드백 제어용이며,
 추후 PID 제어로 전환할 때 재튜닝 대상입니다.
 `target_x`는 카메라 기준에서 마커가 보이는 정상 위치이며, 마커를 화면 정중앙(`x=0`)으로
 맞추는 값이 아닙니다. 마커가 보이는 범위 안에서만 정렬할 수 있으며, pose가 끊기면 즉시 정지합니다.
-제어는 벽 방향과 위치를 한 번에 합산하지 않습니다. 먼저 벽 방향 오차가 허용 범위 안에
-들어올 때까지 회전하고, 이후 x/z 위치를 보정합니다. 이 순차 제어로 회전과 전진이 서로
-간섭해 오차가 커지는 현상을 줄입니다.
+`check_wall_yaw=true`인 경우에만 벽 방향과 위치를 한 번에 합산하지 않고, 먼저 벽 방향
+오차를 보정한 뒤 x/z 위치를 보정합니다. 기본값에서는 벽 방향 체크를 생략하고 x/z 위치
+정렬을 수행한 뒤, marker preset의 `check_yaw` 조건으로 pose correction 결과를 검사합니다.
 OpenCV ArUco 검출은 기본 10Hz로 제한하고 카메라 스트림 자체는 유지합니다.
 필요하면 `detection_rate_hz:=15.0`으로 높일 수 있습니다.
 
