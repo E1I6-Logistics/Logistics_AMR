@@ -6,7 +6,7 @@ TurtleBot3에서 4 cm ArUco 마커(ID 24, 25 / `DICT_5X5_1000`)를 이용해 카
 
 ```bash
 cd ~/turtlebot3_E1i6
-colcon build --packages-select logitle_aruco_msgs logitle_aruco_tools
+colcon build --packages-select turtlebot3_bringup logitle_aruco_msgs logitle_aruco_tools logitle_bringup
 source install/setup.bash
 ```
 
@@ -82,7 +82,7 @@ Action goal이 들어올 때 Action 서버가 `camera.launch.py`를 시작하고
 ros2 launch logitle_bringup logitle_robot.launch.py use_camera:=true
 ```
 
-캘리브레이션 파일을 기본 경로가 아닌 `~/camera/`에 둔 경우에는 다음처럼 경로를 전달합니다.
+기본 경로가 아닌 calibration 파일을 사용할 때는 다음처럼 경로를 전달합니다.
 
 ```bash
 ros2 launch logitle_bringup logitle_robot.launch.py \
@@ -219,7 +219,7 @@ ros2 action send_goal /aruco_align_and_correct logitle_aruco_msgs/action/AlignAn
 
 관제 연동은 `/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_footprint` pose를 계산합니다.
 
-Action 서버는 기본적으로 대기 중에는 카메라 이미지 처리를 하지 않습니다. 관제에서 goal이 들어온 동안에만 `/camera/image_raw`, `/camera/camera_info`를 구독하고 ArUco 검출/pose 계산을 수행한 뒤, goal이 끝나면 구독을 해제합니다.
+Action 서버는 기본적으로 대기 중에는 카메라 이미지 처리를 하지 않습니다. 관제에서 goal이 들어온 동안에만 `/camera/image_raw`, `/camera/camera_info`를 구독하고 ArUco 검출/pose 계산을 수행한 뒤, goal이 끝나면 구독을 해제합니다. TF listener는 pose-corrector와 분리된 단일 스레드 Node에서 동작하므로, 대기 중 TF 수신이 Action 서버의 멀티스레드 처리와 서로 간섭하지 않습니다.
 
 기본 실행은 AMCL/Nav2와 같이 쓰기 안전한 모드입니다. `publish_tf: true` goal이 성공하면 직접 `map -> odom` TF를 발행하지 않고 `/initialpose`를 publish해서 AMCL/Nav2가 계속 `map -> odom`의 단일 publisher로 남게 합니다.
 

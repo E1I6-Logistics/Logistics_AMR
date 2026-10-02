@@ -17,7 +17,7 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import CameraInfo, Image
@@ -98,8 +98,17 @@ def circular_std_deg(angles_rad):
     return float(math.degrees(math.sqrt(-2.0 * math.log(r))))
 
 
+class ArucoTfListenerNode(Node):
+    """Receive TF updates on a lightweight single-threaded executor."""
+
+    def __init__(self):
+        super().__init__("aruco_tf_listener")
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+
 class ArucoPoseCorrectorActionServer(Node):
-    def __init__(self, args):
+    def __init__(self, args, tf_buffer):
         super().__init__("aruco_pose_corrector_action_server")
         self.args = args
         self.callback_group = ReentrantCallbackGroup()
@@ -139,8 +148,7 @@ class ArucoPoseCorrectorActionServer(Node):
             self.dictionary = None
             self.detector_params = None
 
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_buffer = tf_buffer
         self.tf_broadcaster = TransformBroadcaster(self)
         self.initialpose_pub = self.create_publisher(
             PoseWithCovarianceStamped,
@@ -912,9 +920,14 @@ def parse_args():
 def main():
     args = parse_args()
     rclpy.init()
-    node = ArucoPoseCorrectorActionServer(args)
+    tf_node = ArucoTfListenerNode()
+    node = ArucoPoseCorrectorActionServer(args, tf_node.tf_buffer)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
+    tf_executor = SingleThreadedExecutor()
+    tf_executor.add_node(tf_node)
+    tf_thread = threading.Thread(target=tf_executor.spin, name="aruco_tf_listener", daemon=True)
+    tf_thread.start()
     try:
         executor.spin()
     except KeyboardInterrupt:
@@ -922,6 +935,9 @@ def main():
     finally:
         executor.shutdown()
         node.destroy_node()
+        tf_executor.shutdown()
+        tf_thread.join(timeout=2.0)
+        tf_node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
 
