@@ -64,7 +64,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     width_name = 'width'
-    width_default = '640'
+    width_default = '320'
     width_param = LaunchConfiguration(width_name)
     width_launch_arg = DeclareLaunchArgument(
         width_name,
@@ -73,7 +73,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     height_name = 'height'
-    height_default = '480'
+    height_default = '240'
     height_param = LaunchConfiguration(height_name)
     height_launch_arg = DeclareLaunchArgument(
         height_name,
@@ -83,7 +83,7 @@ def generate_launch_description() -> LaunchDescription:
 
     camera_info_url_name = 'camera_info_url'
     camera_info_url_default = 'file://' + os.path.expanduser(
-        '~/aruco_test/imx219_640x480.yaml'
+        '~/camera/imx219_320x240.yaml'
     )
     camera_info_url_param = LaunchConfiguration(camera_info_url_name)
     camera_info_url_launch_arg = DeclareLaunchArgument(

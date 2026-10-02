@@ -34,7 +34,7 @@ def generate_launch_description():
     )
     use_camera_default = 'false'
     camera_info_url_default = 'file://' + os.path.expanduser(
-        '~/aruco_test/imx219_640x480.yaml'
+        '~/camera/imx219_320x240.yaml'
     )
 
     # ============================================================
