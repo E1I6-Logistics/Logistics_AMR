@@ -4,7 +4,10 @@
 import argparse
 import math
 import os
+import shutil
+import signal
 import sys
+import subprocess
 import threading
 import time
 
@@ -186,6 +189,9 @@ class AlignAndCorrectActionServer(Node):
         self.image_sub = None
         self.pose_input_lock = threading.Lock()
         self.active_marker_id = None
+        self.camera_process_lock = threading.Lock()
+        self.camera_process = None
+        self.camera_process_owned = False
         self.bridge = CvBridge()
         self.camera_matrix = None
         self.dist_coeffs = None
@@ -248,6 +254,7 @@ class AlignAndCorrectActionServer(Node):
             self.release_goal()
             return result
 
+        self.start_camera_on_goal()
         self.start_pose_input(marker_id)
         preset_text = f"; preset_node={params['preset_node']}" if params["preset_node"] else ""
         self.get_logger().info(
@@ -308,6 +315,7 @@ class AlignAndCorrectActionServer(Node):
         finally:
             self.stop_robot()
             self.stop_pose_input()
+            self.stop_camera_process()
             self.release_goal()
 
     def params_from_goal(self, goal, marker_id):
@@ -752,6 +760,81 @@ class AlignAndCorrectActionServer(Node):
             f"from {self.args.image_topic}"
         )
 
+    def start_camera_on_goal(self):
+        if self.args.pose_source != "camera" or not self.args.camera_auto_start:
+            return
+
+        with self.camera_process_lock:
+            if self.camera_process is not None:
+                if self.camera_process.poll() is None:
+                    return
+                self.camera_process = None
+                self.camera_process_owned = False
+
+            # Reuse a camera that was started separately, for example with
+            # `use_camera:=true` or a standalone camera launch.
+            camera_node_running = any(
+                name == "camera" for name, _namespace in self.get_node_names_and_namespaces()
+            )
+            if (
+                self.count_publishers(self.args.image_topic) > 0
+                or self.count_publishers(self.args.camera_info_topic) > 0
+                or camera_node_running
+            ):
+                self.get_logger().info("Using an already running camera process")
+                return
+
+            ros2_executable = shutil.which("ros2")
+            if ros2_executable is None:
+                self.get_logger().error("Cannot start camera: ros2 executable was not found")
+                return
+
+            command = [
+                ros2_executable,
+                "launch",
+                self.args.camera_launch_package,
+                self.args.camera_launch_file,
+            ]
+            if self.args.camera_info_url:
+                command.append(f"camera_info_url:={self.args.camera_info_url}")
+
+            try:
+                self.camera_process = subprocess.Popen(
+                    command,
+                    start_new_session=True,
+                )
+                self.camera_process_owned = True
+                self.get_logger().info(
+                    "Started camera on Action goal: " + " ".join(command)
+                )
+            except OSError as exc:
+                self.camera_process = None
+                self.camera_process_owned = False
+                self.get_logger().error(f"Failed to start camera on Action goal: {exc}")
+
+    def stop_camera_process(self):
+        with self.camera_process_lock:
+            process = self.camera_process
+            owned = self.camera_process_owned
+            self.camera_process = None
+            self.camera_process_owned = False
+
+        if process is None or not owned or process.poll() is not None:
+            return
+
+        try:
+            os.killpg(process.pid, signal.SIGINT)
+            process.wait(timeout=self.args.camera_shutdown_timeout_sec)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    process.wait(timeout=2.0)
+                except (ProcessLookupError, subprocess.TimeoutExpired):
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+        self.get_logger().info("Stopped camera started for the completed Action goal")
+
     def stop_pose_input(self):
         if self.pose_sub is not None:
             self.destroy_subscription(self.pose_sub)
@@ -902,6 +985,7 @@ class AlignAndCorrectActionServer(Node):
     def destroy_node(self):
         self.stop_robot()
         self.stop_pose_input()
+        self.stop_camera_process()
         self.action_server.destroy()
         super().destroy_node()
 
@@ -916,12 +1000,17 @@ def parse_args():
         choices=("camera", "topic"),
         default="camera",
         help=(
-            "camera: subscribe to image topics only while an Action goal is active. "
+            "camera: start/reuse the camera and subscribe to image topics only while an Action goal is active. "
             "topic: subscribe to an external pose publisher."
         ),
     )
     parser.add_argument("--image-topic", default="/camera/image_raw")
     parser.add_argument("--camera-info-topic", default="/camera/camera_info")
+    parser.add_argument("--camera-auto-start", type=bool_arg, default=True)
+    parser.add_argument("--camera-launch-package", default="turtlebot3_bringup")
+    parser.add_argument("--camera-launch-file", default="camera.launch.py")
+    parser.add_argument("--camera-info-url", default="")
+    parser.add_argument("--camera-shutdown-timeout-sec", type=float, default=3.0)
     parser.add_argument("--dictionary", choices=sorted(ARUCO_DICTS), default="5X5_1000")
     parser.add_argument(
         "--pose-topic-template",
