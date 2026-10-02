@@ -154,7 +154,7 @@ def generate_launch_description():
     #   geometry_msgs/msg/PoseStamped
     #
     # Publish Rate:
-    #   5 Hz
+    #   20 Hz
     # ============================================================
 
     logitle_pose_node = Node(
@@ -166,7 +166,7 @@ def generate_launch_description():
             {
                 'target_frame': 'map',
                 'source_frame': 'base_footprint',
-                'publish_rate_hz': 5.0,
+                'publish_rate_hz': 20.0,
                 'topic_name': 'logitle_pose',
                 'use_sim_time': use_sim_time,
             }
@@ -184,7 +184,11 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {
-                'use_sim_time': use_sim_time
+                'use_sim_time': use_sim_time,
+                'pose_topic': 'logitle_pose',
+                'use_logitle_pose_topic': True,
+                'global_frame': 'map',
+                'base_frame': 'base_footprint',
             }
         ]
     )
