@@ -251,6 +251,9 @@ class AlignAndCorrectActionServer(Node):
         self.get_logger().info(
             f"Accepted align/correct goal: marker_id={marker_id}; "
             f"target_x={params['target_x']:.3f}m; target_z={params['target_z']:.3f}m; "
+            f"check_yaw={params['check_yaw']}; "
+            f"expected_base_yaw_deg={params['expected_base_yaw_deg']:.1f}; "
+            f"yaw_tolerance_deg={params['yaw_tolerance_deg']:.1f}; "
             f"align_timeout={params['align_timeout_sec']:.1f}s; apply_correction={goal.apply_correction}"
             f"{preset_text}"
         )
