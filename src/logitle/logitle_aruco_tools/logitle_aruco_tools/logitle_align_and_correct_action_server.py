@@ -545,7 +545,7 @@ class AlignAndCorrectActionServer(Node):
             return 0.0, 0.0, "aligned", x_error, z_error, wall_yaw_error
 
         angular_z = clamp(
-            -params["kx"] * x_error - params["kyaw"] * wall_yaw_error,
+            -params["kx"] * x_error + params["kyaw"] * wall_yaw_error,
             -params["max_angular"],
             params["max_angular"],
         )
