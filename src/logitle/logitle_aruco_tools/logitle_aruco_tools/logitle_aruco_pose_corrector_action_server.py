@@ -244,7 +244,7 @@ class ArucoPoseCorrectorActionServer(Node):
         last_base_pose = None
         last_yaw_error_deg = 0.0
         last_state = "waiting_for_marker"
-        method_counts = {"two_marker": 0, "single_marker": 0}
+        method_counts = {"two_marker": 0, "single_marker": 0, "single_marker_yaw_fallback": 0}
         started = time.time()
 
         while rclpy.ok():
@@ -323,7 +323,8 @@ class ArucoPoseCorrectorActionServer(Node):
             )
             if sample["accepted"]:
                 accepted += 1
-                method_counts[sample.get("method", "single_marker")] += 1
+                method_key = sample.get("method", "single_marker")
+                method_counts[method_key] = method_counts.get(method_key, 0) + 1
                 last_base_pose = sample["T_map_base"]
                 last_yaw_error_deg = sample["yaw_error_deg"]
                 base_window.append(sample["T_map_base"])
@@ -382,7 +383,8 @@ class ArucoPoseCorrectorActionServer(Node):
                     message = "Pose correction succeeded in dry-run mode."
                 message += (
                     f" [pose samples: two_marker={method_counts['two_marker']}, "
-                    f"single_marker={method_counts['single_marker']}]"
+                    f"single_marker={method_counts['single_marker']}, "
+                    f"yaw_fallback={method_counts['single_marker_yaw_fallback']}]"
                 )
 
                 result = self.make_result(
@@ -785,6 +787,12 @@ class ArucoPoseCorrectorActionServer(Node):
             }
 
         T_map_base_raw, method = self.solve_map_base(msg, marker, aux, check_yaw, expected_yaw_deg)
+        if T_map_base_raw is None:
+            return {
+                "accepted": False,
+                "state": "rejecting_yaw",
+                "yaw_error_deg": 0.0,
+            }
         roll, pitch, yaw = matrix_to_rpy(T_map_base_raw[:3, :3])
         base_z = float(T_map_base_raw[2, 3])
         tilt_limit = math.radians(outlier_tilt_deg)
@@ -834,6 +842,25 @@ class ArucoPoseCorrectorActionServer(Node):
             for R, t, error in candidates:
                 T = marker.T_map_marker @ invert(make_T(R, t)) @ invert(self.T_base_camera)
                 options.append((T, error))
+            if check_yaw and self.args.single_marker_yaw_fallback:
+                # A single small marker's orientation jitters by several degrees
+                # (N3 on robot2: about +/-6 deg). Use the node's expected yaw and
+                # take only the position from the marker translation; still gate
+                # frames whose best orientation is far from the expected yaw.
+                expected_yaw = math.radians(expected_yaw_deg)
+                T_best, _ = min(
+                    options,
+                    key=lambda option: abs(angle_diff(matrix_to_rpy(option[0][:3, :3])[2], expected_yaw)),
+                )
+                best_error_deg = abs(math.degrees(angle_diff(matrix_to_rpy(T_best[:3, :3])[2], expected_yaw)))
+                if best_error_deg > self.args.single_marker_yaw_gate_deg:
+                    return None, "single_marker_yaw_fallback"
+                m1 = np.asarray(marker.T_map_marker[:2, 3], dtype=float)
+                b1 = (self.T_base_camera @ np.append(candidates[0][1], 1.0))[:2]
+                c, s_ = math.cos(expected_yaw), math.sin(expected_yaw)
+                xy = m1 - np.array([[c, -s_], [s_, c]]) @ b1
+                T = make_T(rpy_to_matrix(0.0, 0.0, expected_yaw), [float(xy[0]), float(xy[1]), 0.0])
+                return T, "single_marker_yaw_fallback"
             if check_yaw:
                 expected_yaw = math.radians(expected_yaw_deg)
                 T, _ = min(
@@ -1049,6 +1076,8 @@ def parse_args():
     parser.add_argument("--pose-timeout", type=float, default=0.5)
     parser.add_argument("--feedback-period", type=float, default=0.2)
     parser.add_argument("--two-marker-min-dist", type=float, default=0.15)
+    parser.add_argument("--single-marker-yaw-fallback", type=bool_arg, default=True)
+    parser.add_argument("--single-marker-yaw-gate-deg", type=float, default=15.0)
     parser.add_argument("--two-marker-dist-tolerance", type=float, default=0.05)
     parser.add_argument("--control-period", type=float, default=0.03)
     return parser.parse_args(remove_ros_args(args=sys.argv)[1:])
