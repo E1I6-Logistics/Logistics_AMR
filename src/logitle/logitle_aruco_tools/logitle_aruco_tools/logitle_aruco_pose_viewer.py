@@ -48,7 +48,9 @@ def make_detector_params():
     params.minMarkerPerimeterRate = 0.05
     params.maxMarkerPerimeterRate = 0.8
     params.minCornerDistanceRate = 0.05
-    params.minDistanceToBorder = 10
+    # N3/N4 markers sit high on the wall and appear within a few pixels of the
+    # top image edge; 10 px rejected them. 3 px is the OpenCV default.
+    params.minDistanceToBorder = 3
     return params
 
 
