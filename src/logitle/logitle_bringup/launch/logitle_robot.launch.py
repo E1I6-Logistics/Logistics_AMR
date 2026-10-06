@@ -229,7 +229,7 @@ def generate_launch_description():
             {
                 'target_frame': 'map',
                 'source_frame': 'base_footprint',
-                'publish_rate_hz': 20.0,
+                'publish_rate_hz': 5.0,
                 'topic_name': 'logitle_pose',
                 'use_sim_time': use_sim_time,
             }
