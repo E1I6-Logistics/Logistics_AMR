@@ -684,7 +684,7 @@ class ArucoPoseCorrectorActionServer(Node):
                 continue
             other_candidates = self.estimate_marker_candidates(corners[j], self.marker_size_for(other_id))
             if other_candidates:
-                others[int(other_id)] = other_candidates[0][1]
+                others[int(other_id)] = other_candidates
         self.store_latest_pose(marker_id, pose, aux={"candidates": candidates, "others": others})
 
     def estimate_marker_candidates(self, corner, marker_size):
@@ -833,7 +833,13 @@ class ArucoPoseCorrectorActionServer(Node):
         candidates = aux.get("candidates") or []
         others = aux.get("others") or {}
 
-        T_pair = self.two_marker_map_base(marker, candidates, others)
+        T_pair = self.two_marker_map_base(
+            marker,
+            candidates,
+            others,
+            check_yaw=check_yaw,
+            expected_yaw_deg=expected_yaw_deg,
+        )
         if T_pair is not None:
             return T_pair, "two_marker"
 
@@ -874,37 +880,82 @@ class ArucoPoseCorrectorActionServer(Node):
         T_camera_marker = self.pose_to_T(msg)
         return marker.T_map_marker @ invert(T_camera_marker) @ invert(self.T_base_camera), "single_marker"
 
-    def two_marker_map_base(self, marker, candidates, others):
-        """Planar map->base pose from two marker positions; orientation-free."""
+    def two_marker_map_base(
+        self,
+        marker,
+        candidates,
+        others,
+        check_yaw=False,
+        expected_yaw_deg=0.0,
+    ):
+        """Select the best planar map->base pose from visible marker pairs.
+
+        OpenCV can return two IPPE candidates for each small marker. Evaluate
+        every candidate pair instead of depending on detection order or the
+        first IPPE solution. Distance consistency is the primary geometric
+        check; when yaw gating is enabled, the expected node yaw breaks ties
+        between geometrically plausible branches.
+        """
         if not candidates or not others:
             return None
         m1 = np.asarray(marker.T_map_marker[:2, 3], dtype=float)
-        b1 = (self.T_base_camera @ np.append(candidates[0][1], 1.0))[:2]
-        for other_id, t_other in others.items():
+        expected_yaw = math.radians(expected_yaw_deg)
+        best = None
+
+        for other_id, other_candidates in others.items():
             other = self.markers.get(other_id)
             if other is None:
                 continue
             m2 = np.asarray(other.T_map_marker[:2, 3], dtype=float)
-            b2 = (self.T_base_camera @ np.append(t_other, 1.0))[:2]
             dm = m2 - m1
-            db = b2 - b1
             map_dist = float(np.linalg.norm(dm))
-            seen_dist = float(np.linalg.norm(db))
             if map_dist < self.args.two_marker_min_dist:
                 continue
-            if abs(map_dist - seen_dist) > self.args.two_marker_dist_tolerance:
-                self.get_logger().warn(
-                    f"Skipping two-marker pose with ID{other_id}: map distance {map_dist:.3f}m "
-                    f"vs seen {seen_dist:.3f}m; check marker_map",
-                    throttle_duration_sec=5.0,
-                )
-                continue
-            yaw = math.atan2(dm[1], dm[0]) - math.atan2(db[1], db[0])
-            c, s_ = math.cos(yaw), math.sin(yaw)
-            Rz = np.array([[c, -s_], [s_, c]])
-            xy = ((m1 - Rz @ b1) + (m2 - Rz @ b2)) / 2.0
-            return make_T(rpy_to_matrix(0.0, 0.0, yaw), [float(xy[0]), float(xy[1]), 0.0])
-        return None
+
+            for primary in candidates:
+                b1 = (self.T_base_camera @ np.append(primary[1], 1.0))[:2]
+                for secondary in other_candidates:
+                    b2 = (self.T_base_camera @ np.append(secondary[1], 1.0))[:2]
+                    db = b2 - b1
+                    seen_dist = float(np.linalg.norm(db))
+                    distance_error = abs(map_dist - seen_dist)
+                    if distance_error > self.args.two_marker_dist_tolerance:
+                        continue
+
+                    yaw = math.atan2(dm[1], dm[0]) - math.atan2(db[1], db[0])
+                    yaw_error = abs(angle_diff(yaw, expected_yaw))
+                    reprojection_error = float(primary[2] + secondary[2])
+                    score = (
+                        distance_error,
+                        math.degrees(yaw_error) if check_yaw else 0.0,
+                        reprojection_error,
+                    )
+                    if best is None or score < best[0]:
+                        c, s_ = math.cos(yaw), math.sin(yaw)
+                        Rz = np.array([[c, -s_], [s_, c]])
+                        xy = ((m1 - Rz @ b1) + (m2 - Rz @ b2)) / 2.0
+                        best = (
+                            score,
+                            make_T(
+                                rpy_to_matrix(0.0, 0.0, yaw),
+                                [float(xy[0]), float(xy[1]), 0.0],
+                            ),
+                            int(other_id),
+                            distance_error,
+                        )
+
+        if best is None:
+            self.get_logger().warn(
+                "No valid two-marker candidate pair matched marker_map distance",
+                throttle_duration_sec=5.0,
+            )
+            return None
+
+        self.get_logger().debug(
+            f"Selected two-marker pair target+ID{best[2]} "
+            f"distance_error={best[3]:.3f}m"
+        )
+        return best[1]
 
     def pose_to_T(self, msg):
         p = msg.pose.position
