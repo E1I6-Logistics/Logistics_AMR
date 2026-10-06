@@ -244,6 +244,7 @@ class ArucoPoseCorrectorActionServer(Node):
         last_base_pose = None
         last_yaw_error_deg = 0.0
         last_state = "waiting_for_marker"
+        method_counts = {"two_marker": 0, "single_marker": 0}
         started = time.time()
 
         while rclpy.ok():
@@ -318,9 +319,11 @@ class ArucoPoseCorrectorActionServer(Node):
                 check_yaw,
                 expected_yaw_deg,
                 yaw_tolerance_deg,
+                aux=pose.get("aux"),
             )
             if sample["accepted"]:
                 accepted += 1
+                method_counts[sample.get("method", "single_marker")] += 1
                 last_base_pose = sample["T_map_base"]
                 last_yaw_error_deg = sample["yaw_error_deg"]
                 base_window.append(sample["T_map_base"])
@@ -377,6 +380,10 @@ class ArucoPoseCorrectorActionServer(Node):
                         )
                 else:
                     message = "Pose correction succeeded in dry-run mode."
+                message += (
+                    f" [pose samples: two_marker={method_counts['two_marker']}, "
+                    f"single_marker={method_counts['single_marker']}]"
+                )
 
                 result = self.make_result(
                     True,
@@ -605,13 +612,14 @@ class ArucoPoseCorrectorActionServer(Node):
                 return
         self.store_latest_pose(marker_id, msg)
 
-    def store_latest_pose(self, marker_id, msg):
+    def store_latest_pose(self, marker_id, msg, aux=None):
         with self.lock:
             prev = self.latest_poses.get(marker_id, {})
             self.latest_poses[marker_id] = {
                 "index": int(prev.get("index", -1)) + 1,
                 "received_at": time.time(),
                 "msg": msg,
+                "aux": aux,
             }
 
     def camera_info_cb(self, msg):
@@ -663,7 +671,44 @@ class ArucoPoseCorrectorActionServer(Node):
             self.dist_coeffs,
         )
         pose = self.make_pose_msg(msg.header.stamp, rvecs[0][0], tvecs[0][0])
-        self.store_latest_pose(marker_id, pose)
+
+        # A small marker seen at an angle has two plausible orientations (IPPE
+        # ambiguity), so keep both. Translations of other map markers in view
+        # allow a flip-free two-marker pose.
+        candidates = self.estimate_marker_candidates(corners[idx], marker_size)
+        others = {}
+        for j, other_id in enumerate(ids_list):
+            if j == idx or other_id not in self.markers:
+                continue
+            other_candidates = self.estimate_marker_candidates(corners[j], self.marker_size_for(other_id))
+            if other_candidates:
+                others[int(other_id)] = other_candidates[0][1]
+        self.store_latest_pose(marker_id, pose, aux={"candidates": candidates, "others": others})
+
+    def estimate_marker_candidates(self, corner, marker_size):
+        """Return [(R, t, reprojection_error), ...] for both IPPE solutions."""
+        half = marker_size / 2.0
+        object_points = np.array(
+            [[-half, half, 0.0], [half, half, 0.0], [half, -half, 0.0], [-half, -half, 0.0]],
+            dtype=np.float32,
+        )
+        image_points = np.asarray(corner, dtype=np.float32).reshape(4, 2)
+        try:
+            count, rvecs, tvecs, errors = cv2.solvePnPGeneric(
+                object_points,
+                image_points,
+                self.camera_matrix,
+                self.dist_coeffs,
+                flags=cv2.SOLVEPNP_IPPE_SQUARE,
+            )
+        except cv2.error:
+            return []
+        errors = np.ravel(errors) if errors is not None else np.zeros(count)
+        candidates = []
+        for i in range(count):
+            R, _ = cv2.Rodrigues(rvecs[i])
+            candidates.append((R, np.asarray(tvecs[i], dtype=float).reshape(3), float(errors[i])))
+        return candidates
 
     def marker_size_for(self, marker_id):
         marker = self.markers.get(marker_id)
@@ -722,6 +767,7 @@ class ArucoPoseCorrectorActionServer(Node):
         check_yaw,
         expected_yaw_deg,
         yaw_tolerance_deg,
+        aux=None,
     ):
         try:
             tf_odom_base = self.tf_buffer.lookup_transform(
@@ -738,8 +784,7 @@ class ArucoPoseCorrectorActionServer(Node):
                 "yaw_error_deg": 0.0,
             }
 
-        T_camera_marker = self.pose_to_T(msg)
-        T_map_base_raw = marker.T_map_marker @ invert(T_camera_marker) @ invert(self.T_base_camera)
+        T_map_base_raw, method = self.solve_map_base(msg, marker, aux, check_yaw, expected_yaw_deg)
         roll, pitch, yaw = matrix_to_rpy(T_map_base_raw[:3, :3])
         base_z = float(T_map_base_raw[2, 3])
         tilt_limit = math.radians(outlier_tilt_deg)
@@ -772,7 +817,67 @@ class ArucoPoseCorrectorActionServer(Node):
             "T_map_base": T_map_base,
             "T_map_odom": T_map_odom,
             "yaw_error_deg": float(yaw_error_deg),
+            "method": method,
         }
+
+    def solve_map_base(self, msg, marker, aux, check_yaw, expected_yaw_deg):
+        aux = aux or {}
+        candidates = aux.get("candidates") or []
+        others = aux.get("others") or {}
+
+        T_pair = self.two_marker_map_base(marker, candidates, others)
+        if T_pair is not None:
+            return T_pair, "two_marker"
+
+        if candidates:
+            options = []
+            for R, t, error in candidates:
+                T = marker.T_map_marker @ invert(make_T(R, t)) @ invert(self.T_base_camera)
+                options.append((T, error))
+            if check_yaw:
+                expected_yaw = math.radians(expected_yaw_deg)
+                T, _ = min(
+                    options,
+                    key=lambda option: abs(angle_diff(matrix_to_rpy(option[0][:3, :3])[2], expected_yaw)),
+                )
+            else:
+                T, _ = min(options, key=lambda option: option[1])
+            return T, "single_marker"
+
+        T_camera_marker = self.pose_to_T(msg)
+        return marker.T_map_marker @ invert(T_camera_marker) @ invert(self.T_base_camera), "single_marker"
+
+    def two_marker_map_base(self, marker, candidates, others):
+        """Planar map->base pose from two marker positions; orientation-free."""
+        if not candidates or not others:
+            return None
+        m1 = np.asarray(marker.T_map_marker[:2, 3], dtype=float)
+        b1 = (self.T_base_camera @ np.append(candidates[0][1], 1.0))[:2]
+        for other_id, t_other in others.items():
+            other = self.markers.get(other_id)
+            if other is None:
+                continue
+            m2 = np.asarray(other.T_map_marker[:2, 3], dtype=float)
+            b2 = (self.T_base_camera @ np.append(t_other, 1.0))[:2]
+            dm = m2 - m1
+            db = b2 - b1
+            map_dist = float(np.linalg.norm(dm))
+            seen_dist = float(np.linalg.norm(db))
+            if map_dist < self.args.two_marker_min_dist:
+                continue
+            if abs(map_dist - seen_dist) > self.args.two_marker_dist_tolerance:
+                self.get_logger().warn(
+                    f"Skipping two-marker pose with ID{other_id}: map distance {map_dist:.3f}m "
+                    f"vs seen {seen_dist:.3f}m; check marker_map",
+                    throttle_duration_sec=5.0,
+                )
+                continue
+            yaw = math.atan2(dm[1], dm[0]) - math.atan2(db[1], db[0])
+            c, s_ = math.cos(yaw), math.sin(yaw)
+            Rz = np.array([[c, -s_], [s_, c]])
+            xy = ((m1 - Rz @ b1) + (m2 - Rz @ b2)) / 2.0
+            return make_T(rpy_to_matrix(0.0, 0.0, yaw), [float(xy[0]), float(xy[1]), 0.0])
+        return None
 
     def pose_to_T(self, msg):
         p = msg.pose.position
@@ -943,6 +1048,8 @@ def parse_args():
     parser.add_argument("--tf-timeout", type=float, default=0.05)
     parser.add_argument("--pose-timeout", type=float, default=0.5)
     parser.add_argument("--feedback-period", type=float, default=0.2)
+    parser.add_argument("--two-marker-min-dist", type=float, default=0.15)
+    parser.add_argument("--two-marker-dist-tolerance", type=float, default=0.05)
     parser.add_argument("--control-period", type=float, default=0.03)
     return parser.parse_args(remove_ros_args(args=sys.argv)[1:])
 
