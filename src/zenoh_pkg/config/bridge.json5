@@ -14,10 +14,7 @@
         ],
 
         // Main -> Robot Service
-        service_servers: [
-          "^/motor_power$",
-          "^/sound$"
-        ],
+        service_servers: [],
 
         service_clients: [],
 
