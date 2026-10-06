@@ -1,32 +1,34 @@
 {
   plugins: {
     ros2dds: {
-      deny: {
+      allow: {
+        // Robot -> Main
         publishers: [
-          "^/robot[0-9]+/.*$",
-          "^/rosout$",
-          "^/parameter_events$"
+          "^/battery_state$",
+          "^/logitle_pose$"
         ],
 
+        // Main -> Robot
         subscribers: [
-          "^/robot[0-9]+/.*$"
+          "^/cmd_vel$"
         ],
 
+        // Main -> Robot Service
         service_servers: [
-          "^/robot[0-9]+/.*$"
+          "^/motor_power$",
+          "^/sound$"
         ],
 
-        service_clients: [
-          "^/robot[0-9]+/.*$"
-        ],
+        service_clients: [],
 
+        // Main -> Robot Action
         action_servers: [
-          "^/robot[0-9]+/.*$"
+          "^/follow_waypoints$",
+          "^/aruco_align_and_correct$",
+          "^/precision_dock$"
         ],
 
-        action_clients: [
-          "^/robot[0-9]+/.*$"
-        ]
+        action_clients: []
       }
     }
   },
