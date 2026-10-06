@@ -87,6 +87,15 @@ ALIGN_TARGET_PRESETS = {
     },
 }
 
+# Markers mounted on the same node. If the requested marker is temporarily
+# out of view, the visible partner can drive both alignment and correction.
+MARKER_FALLBACK_PAIRS = {
+    24: 29,
+    29: 24,
+    25: 28,
+    28: 25,
+}
+
 
 def clamp(value, low, high):
     return max(low, min(high, value))
@@ -208,6 +217,8 @@ class AlignAndCorrectActionServer(Node):
         self.image_sub = None
         self.pose_input_lock = threading.Lock()
         self.active_marker_id = None
+        self.requested_marker_id = None
+        self.selected_marker_id = None
         self.camera_process_lock = threading.Lock()
         self.camera_process = None
         self.camera_process_owned = False
@@ -289,7 +300,7 @@ class AlignAndCorrectActionServer(Node):
         )
 
         try:
-            align_result = self.run_alignment(goal_handle, params)
+            align_result = self.run_alignment(goal_handle, params, goal)
             if goal_handle.is_cancel_requested:
                 result = self.make_result(False, RESULT_CANCELED, "Align/correct canceled.", **align_result)
                 goal_handle.canceled()
@@ -311,8 +322,15 @@ class AlignAndCorrectActionServer(Node):
                 goal_handle.succeed()
                 return result
 
+            selected_marker_id = self.selected_marker_id or marker_id
             self.stop_pose_input()
-            correction = self.run_pose_correction(goal_handle, marker_id, params)
+            if selected_marker_id != marker_id:
+                params = self.params_from_goal(goal, selected_marker_id)
+                self.get_logger().info(
+                    f"Using visible fallback marker ID{selected_marker_id} "
+                    f"for pose correction (requested ID{marker_id})"
+                )
+            correction = self.run_pose_correction(goal_handle, selected_marker_id, params)
             merged = dict(align_result)
             merged.update(correction)
             if not correction["correction_success"]:
@@ -411,7 +429,7 @@ class AlignAndCorrectActionServer(Node):
             and params["min_angular"] <= params["max_angular"]
         )
 
-    def run_alignment(self, goal_handle, params):
+    def run_alignment(self, goal_handle, params, goal):
         started = time.time()
         aligned_since = None
         last_marker_seen = False
@@ -422,6 +440,7 @@ class AlignAndCorrectActionServer(Node):
         final_z_error = 0.0
         final_wall_yaw_error = 0.0
 
+        active_marker_id = self.requested_marker_id
         while rclpy.ok():
             now = time.time()
             if goal_handle.is_cancel_requested:
@@ -476,6 +495,13 @@ class AlignAndCorrectActionServer(Node):
                 continue
 
             last_marker_seen = True
+            visible_marker_id = pose.get("marker_id") or self.selected_marker_id or active_marker_id
+            if visible_marker_id and visible_marker_id != active_marker_id:
+                active_marker_id = int(visible_marker_id)
+                params = self.params_from_goal(goal, active_marker_id)
+                self.get_logger().info(
+                    f"Switched alignment to visible fallback marker ID{active_marker_id}"
+                )
             msg = pose["msg"]
             x = float(msg.pose.position.x)
             z = float(msg.pose.position.z)
@@ -750,6 +776,8 @@ class AlignAndCorrectActionServer(Node):
     def start_pose_input(self, marker_id):
         with self.pose_lock:
             self.latest_pose = None
+            self.requested_marker_id = int(marker_id)
+            self.selected_marker_id = None
         self.last_detection_time = 0.0
 
         if self.args.pose_source == "topic":
@@ -886,15 +914,18 @@ class AlignAndCorrectActionServer(Node):
             self.get_logger().info(f"Stopped on-demand ArUco alignment detection for marker_id={marker_id}")
         with self.pose_lock:
             self.latest_pose = None
+            self.requested_marker_id = None
+            self.selected_marker_id = None
 
     def pose_cb(self, msg):
         self.store_latest_pose(msg)
 
-    def store_latest_pose(self, msg):
+    def store_latest_pose(self, msg, marker_id=None):
         with self.pose_lock:
             self.latest_pose = {
                 "received_at": time.time(),
                 "msg": msg,
+                "marker_id": marker_id,
             }
 
     def camera_info_cb(self, msg):
@@ -906,8 +937,8 @@ class AlignAndCorrectActionServer(Node):
 
     def image_cb(self, raw_msg):
         with self.pose_input_lock:
-            marker_id = self.active_marker_id
-        if marker_id is None:
+            requested_marker_id = self.requested_marker_id or self.active_marker_id
+        if requested_marker_id is None:
             return
 
         now = time.monotonic()
@@ -934,18 +965,31 @@ class AlignAndCorrectActionServer(Node):
             return
 
         ids_list = ids.flatten().tolist()
-        if marker_id not in ids_list:
+        candidate_marker_ids = [requested_marker_id]
+        fallback_marker_id = MARKER_FALLBACK_PAIRS.get(requested_marker_id)
+        if fallback_marker_id is not None:
+            candidate_marker_ids.append(fallback_marker_id)
+        visible_marker_id = next(
+            (candidate_id for candidate_id in candidate_marker_ids if candidate_id in ids_list),
+            None,
+        )
+        if visible_marker_id is None:
             return
 
-        idx = ids_list.index(marker_id)
-        marker_size = self.marker_size_for(marker_id)
+        idx = ids_list.index(visible_marker_id)
+        marker_size = self.marker_size_for(visible_marker_id)
         rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
             [corners[idx]],
             marker_size,
             self.camera_matrix,
             self.dist_coeffs,
         )
-        self.store_latest_pose(self.make_pose_msg(msg.header.stamp, rvecs[0][0], tvecs[0][0]))
+        with self.pose_lock:
+            self.selected_marker_id = int(visible_marker_id)
+        self.store_latest_pose(
+            self.make_pose_msg(msg.header.stamp, rvecs[0][0], tvecs[0][0]),
+            marker_id=int(visible_marker_id),
+        )
 
     def marker_size_for(self, marker_id):
         marker = self.markers.get(marker_id)
