@@ -22,7 +22,7 @@ from ament_index_python.resources import has_resource
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.launch_description import LaunchDescription
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
@@ -92,6 +92,20 @@ def generate_launch_description() -> LaunchDescription:
         description='Camera calibration YAML URL (file://... or package://...)'
     )
 
+    # ArUco detection runs at 10 Hz, so 15 fps keeps headroom while cutting
+    # camera and image-transport CPU roughly in half compared to ~30 fps.
+    fps_name = 'fps'
+    fps_default = '15'
+    fps_param = LaunchConfiguration(fps_name)
+    fps_launch_arg = DeclareLaunchArgument(
+        fps_name,
+        default_value=fps_default,
+        description='Camera frame rate (sets FrameDurationLimits)'
+    )
+    frame_duration_param = PythonExpression(
+        ['[int(1e6 / float(', fps_param, '))] * 2']
+    )
+
     composable_nodes = [
         ComposableNode(
             package='camera_ros',
@@ -103,6 +117,7 @@ def generate_launch_description() -> LaunchDescription:
                 'height': height_param,
                 'format': format_param,
                 'camera_info_url': camera_info_url_param,
+                'FrameDurationLimits': frame_duration_param,
             }],
             extra_arguments=[{'use_intra_process_comms': True}],
         ),
@@ -134,5 +149,6 @@ def generate_launch_description() -> LaunchDescription:
         width_launch_arg,
         height_launch_arg,
         camera_info_url_launch_arg,
+        fps_launch_arg,
         container,
     ])

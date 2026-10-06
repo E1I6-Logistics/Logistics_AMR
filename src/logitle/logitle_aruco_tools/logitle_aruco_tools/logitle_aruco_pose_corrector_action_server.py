@@ -102,14 +102,30 @@ class ArucoTfListenerNode(Node):
     """Receive TF updates on a lightweight single-threaded executor."""
 
     def __init__(self):
-        super().__init__("aruco_tf_listener")
+        # Ignore launch remaps such as __node so this helper keeps its own name.
+        super().__init__("aruco_tf_listener", use_global_arguments=False)
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_listener = None
+        self.listener_lock = threading.Lock()
+
+    def start_listening(self):
+        """Subscribe to /tf and /tf_static only while a correction goal runs."""
+        with self.listener_lock:
+            if self.tf_listener is None:
+                self.tf_buffer.clear()
+                self.tf_listener = TransformListener(self.tf_buffer, self)
+
+    def stop_listening(self):
+        with self.listener_lock:
+            if self.tf_listener is not None:
+                self.tf_listener.unregister()
+                self.tf_listener = None
 
 
 class ArucoPoseCorrectorActionServer(Node):
-    def __init__(self, args, tf_buffer):
+    def __init__(self, args, tf_node):
         super().__init__("aruco_pose_corrector_action_server")
+        self.tf_node = tf_node
         self.args = args
         self.callback_group = ReentrantCallbackGroup()
         self.lock = threading.Lock()
@@ -148,18 +164,15 @@ class ArucoPoseCorrectorActionServer(Node):
             self.dictionary = None
             self.detector_params = None
 
-        self.tf_buffer = tf_buffer
+        self.tf_buffer = tf_node.tf_buffer
         self.tf_broadcaster = TransformBroadcaster(self)
         self.initialpose_pub = self.create_publisher(
             PoseWithCovarianceStamped,
             args.initialpose_topic,
             10,
         )
-        self.tf_publish_timer = self.create_timer(
-            0.1,
-            self.publish_active_tf,
-            callback_group=self.callback_group,
-        )
+        # Created only while a direct map->odom TF is active (publish_tf mode).
+        self.tf_publish_timer = None
         self.action_server = ActionServer(
             self,
             CorrectPoseWithAruco,
@@ -213,6 +226,7 @@ class ArucoPoseCorrectorActionServer(Node):
         expected_yaw_deg = float(goal.expected_base_yaw_deg)
         yaw_tolerance_deg = positive_or_default(goal.yaw_tolerance_deg, self.args.yaw_tolerance_deg)
 
+        self.tf_node.start_listening()
         self.start_pose_input(marker_id)
         self.get_logger().info(
             f"Accepted pose correction goal: marker_id={marker_id} publish_tf={goal.publish_tf} "
@@ -351,6 +365,7 @@ class ArucoPoseCorrectorActionServer(Node):
                     if self.should_publish_tf_directly():
                         with self.active_tf_lock:
                             self.active_map_odom = np.array(T_map_odom, copy=True)
+                        self.ensure_tf_publish_timer()
                         self.publish_active_tf()
                         message = "Pose correction succeeded; map->odom TF will continue publishing."
                     else:
@@ -395,6 +410,7 @@ class ArucoPoseCorrectorActionServer(Node):
 
     def release_goal(self):
         self.stop_pose_input()
+        self.tf_node.stop_listening()
         with self.goal_lock:
             self.goal_active = False
 
@@ -448,9 +464,22 @@ class ArucoPoseCorrectorActionServer(Node):
         except TransformException:
             return False
 
+    def ensure_tf_publish_timer(self):
+        with self.active_tf_lock:
+            if self.tf_publish_timer is None:
+                self.tf_publish_timer = self.create_timer(
+                    0.1,
+                    self.publish_active_tf,
+                    callback_group=self.callback_group,
+                )
+
     def clear_active_tf(self):
         with self.active_tf_lock:
             self.active_map_odom = None
+            timer = self.tf_publish_timer
+            self.tf_publish_timer = None
+        if timer is not None:
+            self.destroy_timer(timer)
 
     def publish_active_tf(self):
         with self.active_tf_lock:
@@ -834,7 +863,8 @@ class ArucoPoseCorrectorActionServer(Node):
         return result
 
     def destroy_node(self):
-        self.tf_publish_timer.cancel()
+        if self.tf_publish_timer is not None:
+            self.tf_publish_timer.cancel()
         self.stop_pose_input()
         self.action_server.destroy()
         super().destroy_node()
@@ -921,7 +951,7 @@ def main():
     args = parse_args()
     rclpy.init()
     tf_node = ArucoTfListenerNode()
-    node = ArucoPoseCorrectorActionServer(args, tf_node.tf_buffer)
+    node = ArucoPoseCorrectorActionServer(args, tf_node)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     tf_executor = SingleThreadedExecutor()
