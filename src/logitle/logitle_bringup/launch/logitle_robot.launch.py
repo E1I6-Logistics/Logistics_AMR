@@ -243,16 +243,19 @@ def generate_launch_description():
 
     docking_node = Node(
         package='logitle_docking',
-        executable='precision_docking_ICP_align_server_V2',
+        executable='precision_docking_server',
         name='logitle_docking_node',
         output='screen',
         parameters=[
             {
                 'use_sim_time': use_sim_time,
-                'pose_topic': 'logitle_pose',
-                'use_logitle_pose_topic': True,
-                'global_frame': 'map',
+                'odom_frame': 'odom',
                 'base_frame': 'base_footprint',
+                'charger_width': 0.04,
+                'wing_length': 0.30,
+                'wing_angle_deg': 45.0,
+                'roi_y_limit': 0.25,
+                'staging_distance': 0.45,
             }
         ],
         condition=IfCondition(use_docking),
