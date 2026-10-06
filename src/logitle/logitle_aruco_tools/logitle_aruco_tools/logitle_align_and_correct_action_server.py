@@ -18,8 +18,10 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped, Twist, TwistStamped
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.serialization import deserialize_message
 from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import CameraInfo, Image
 
@@ -183,9 +185,18 @@ def marker_wall_yaw_error(q):
     return math.atan2(normal_x, max(abs(normal_z), 1e-6))
 
 
+class AlignImageListenerNode(Node):
+    """Receive camera frames on a lightweight single-threaded executor."""
+
+    def __init__(self):
+        # Ignore launch remaps such as __node so this helper keeps its own name.
+        super().__init__("align_and_correct_image_listener", use_global_arguments=False)
+
+
 class AlignAndCorrectActionServer(Node):
-    def __init__(self, args):
+    def __init__(self, args, image_node):
         super().__init__("align_and_correct_with_aruco_action_server")
+        self.image_node = image_node
         self.args = args
         self.callback_group = ReentrantCallbackGroup()
         self.goal_lock = threading.Lock()
@@ -756,20 +767,25 @@ class AlignAndCorrectActionServer(Node):
         with self.pose_input_lock:
             self.active_marker_id = int(marker_id)
             if self.camera_info_sub is None:
-                self.camera_info_sub = self.create_subscription(
+                self.camera_info_sub = self.image_node.create_subscription(
                     CameraInfo,
                     self.args.camera_info_topic,
                     self.camera_info_cb,
                     10,
-                    callback_group=self.callback_group,
                 )
             if self.image_sub is None:
-                self.image_sub = self.create_subscription(
+                # Receive serialized frames and deserialize only the frames that
+                # pass the detection rate limit; the camera publishes ~30 fps.
+                self.image_sub = self.image_node.create_subscription(
                     Image,
                     self.args.image_topic,
                     self.image_cb,
-                    10,
-                    callback_group=self.callback_group,
+                    QoSProfile(
+                        reliability=ReliabilityPolicy.BEST_EFFORT,
+                        history=HistoryPolicy.KEEP_LAST,
+                        depth=1,
+                    ),
+                    raw=True,
                 )
         self.get_logger().info(
             f"Started on-demand ArUco alignment detection for marker_id={marker_id} "
@@ -863,9 +879,9 @@ class AlignAndCorrectActionServer(Node):
             self.image_sub = None
             self.camera_info_sub = None
         if image_sub is not None:
-            self.destroy_subscription(image_sub)
+            self.image_node.destroy_subscription(image_sub)
         if camera_info_sub is not None:
-            self.destroy_subscription(camera_info_sub)
+            self.image_node.destroy_subscription(camera_info_sub)
         if marker_id is not None and self.args.pose_source == "camera":
             self.get_logger().info(f"Stopped on-demand ArUco alignment detection for marker_id={marker_id}")
         with self.pose_lock:
@@ -888,7 +904,7 @@ class AlignAndCorrectActionServer(Node):
         self.dist_coeffs = np.array(msg.d, dtype=np.float32)
         self.camera_info_shape = (msg.width, msg.height)
 
-    def image_cb(self, msg):
+    def image_cb(self, raw_msg):
         with self.pose_input_lock:
             marker_id = self.active_marker_id
         if marker_id is None:
@@ -898,6 +914,7 @@ class AlignAndCorrectActionServer(Node):
         if now - self.last_detection_time < self.detection_period_sec:
             return
         self.last_detection_time = now
+        msg = deserialize_message(raw_msg, Image)
 
         if self.camera_matrix is None:
             if self.args.approx_camera_info:
@@ -907,7 +924,7 @@ class AlignAndCorrectActionServer(Node):
         if self.camera_matrix is None:
             return
 
-        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="mono8")
         corners, ids, _ = cv2.aruco.detectMarkers(
             frame,
             self.dictionary,
@@ -1078,7 +1095,16 @@ def parse_args():
 def main():
     args = parse_args()
     rclpy.init()
-    node = AlignAndCorrectActionServer(args)
+    image_node = AlignImageListenerNode()
+    node = AlignAndCorrectActionServer(args, image_node)
+    image_executor = SingleThreadedExecutor()
+    image_executor.add_node(image_node)
+    image_thread = threading.Thread(
+        target=image_executor.spin,
+        name="align_image_listener",
+        daemon=True,
+    )
+    image_thread.start()
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     try:
@@ -1088,6 +1114,9 @@ def main():
     finally:
         executor.shutdown()
         node.destroy_node()
+        image_executor.shutdown()
+        image_thread.join(timeout=2.0)
+        image_node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
 
