@@ -96,7 +96,7 @@ class PID:
 class PrecisionDockingServer(Node):
     def __init__(self):
         super().__init__('precision_docking_server')
-        self.set_parameters([rp.parameter.Parameter('use_sim_time', rp.Parameter.Type.BOOL, True)])
+        self.set_parameters([rp.parameter.Parameter('use_sim_time', rp.Parameter.Type.BOOL, False)])
         self.cb_group = ReentrantCallbackGroup()
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -116,19 +116,34 @@ class PrecisionDockingServer(Node):
         # [PID 제어기 설정]
         # out_max를 0.15로 설정하여 남은 거리(0.55m -> 0.0m) 동안 P 제어로 자연스럽게 감속
         # 라이다 센서 주기(5~10Hz)와 루프(20Hz) 간 미분 헌팅을 방지하기 위해 d=0.02 적용
-        self.linear_pid = PID(p=0.5, i=0.0, d=0.02, out_min=0.01, out_max=0.05)
+        self.linear_pid = PID(p=0.5, i=0.0, d=0.02, out_min=0.01, out_max=0.03)
         self.angular_pid = PID(1.2, 0.1, 0.05, -0.25, 0.25)
-        self.staging_linear_pid = PID(0.6, 0.0, 0.02, 0.0, 0.15)
-        self.staging_angular_pid = PID(1.8, 0.05, 0.1, -0.5, 0.5)
-
+        # __init__ 내부
+        self.staging_linear_pid = PID(p=0.8, i=0.01, d=0.02, out_min=0.015, out_max=0.15)
+        self.staging_angular_pid = PID(p=2.0, i=0.05, d=0.08, out_min=-0.4, out_max=0.4)
         self.get_logger().info('Two-Phase 정밀 도킹 서버 준비 완료 (Idle 상태)')
 
     def _declare_and_update_params(self):
         params = {
-            'charger_width': 0.25, 'wing_length': 0.35, 'wing_angle_deg': 45.0,
-            'robot_rear_length': 0.20, 'roi_x_min': -2.0, 'roi_x_max': -0.07, 'roi_y_limit': 2.5,
-            'staging_distance': 0.8, 'final_yaw_tolerance_deg': 0.1,
-            'steering_lock_dist': 0.35, 'odom_frame': 'odom', 'base_frame': 'base_footprint'
+            # 실제 스캔처럼 안쪽이 뾰족하게 모이므로 바닥 너비를 대폭 축소 (0.32 -> 0.04m)
+            'charger_width': 0.04,
+            
+            # 날개 길이 (실제 경사면 길이에 맞춤)
+            'wing_length': 0.30, 
+            'wing_angle_deg': 45.0,
+            
+            'robot_rear_length': 0.20, 
+            'roi_x_min': -0.8, 
+            'roi_x_max': 0.15,  # 바닥 단자가 잘리지 않도록 양수 여유 부여
+            
+            # [핵심] 양 날개 바깥의 수평 벽면 점들을 잘라내기 위해 0.8 -> 0.25m로 축소
+            'roi_y_limit': 0.25, 
+            
+            'staging_distance': 0.45, 
+            'final_yaw_tolerance_deg': 1.0, # 0.1도는 실물에서 도달하기 어려우므로 1.0도로 완화
+            'steering_lock_dist': 0.35, 
+            'odom_frame': 'odom', 
+            'base_frame': 'base_footprint'
         }
         for name, val in params.items():
             self.declare_parameter(name, val)
@@ -149,12 +164,12 @@ class PrecisionDockingServer(Node):
         pts = []
         half_w = self.p['charger_width'] / 2.0
         
-        # 1. 안쪽 충전 단자 바닥면 (x = 0)
-        for y in np.arange(-half_w, half_w + 0.005, 0.02):
+        # 1. 안쪽 충전 단자 바닥면 (x = 0): 간격을 0.02 -> 0.005(5mm)로 촘촘히 하여 중심 가중치 4배 부여
+        for y in np.arange(-half_w, half_w + 0.001, 0.005):
             pts.append([0.0, y])
             
-        # 2. V자 양 날개 (+X 방향 전개)
-        for l in np.arange(0.0, self.p['wing_length'] + 0.005, 0.02):
+        # 2. V자 양 날개 (+X 방향 전개): 날개 간격은 0.025로 유지하여 날개 점들의 과도한 왜곡 영향 억제
+        for l in np.arange(0.01, self.p['wing_length'] + 0.005, 0.025):
             px = l * math.cos(self.wing_rad)
             py = half_w + l * math.sin(self.wing_rad)
             pts.extend([[px, py], [px, -py]])
@@ -239,26 +254,31 @@ class PrecisionDockingServer(Node):
                     
                     if match_cnt >= 10:
                         R, t = T[:2, :2], T[:2, 2]
-                        R_base_dock = R.T
-                        t_base_dock = -R.T @ t
+                        
+                        # T는 base -> dock 변환이므로, base 기준 도크의 위치는 -R.T @ t
+                        # R.T @ [1, 0] = [R[0, 0], R[0, 1]] 이 도크 +X축의 base 내 방향
+                        rel_x = float(-R[0, 0] * t[0] - R[1, 0] * t[1])
+                        rel_y = float(-R[0, 1] * t[0] - R[1, 1] * t[1])
+                        
+                        # 도크 중심축(+X)이 로봇 기준 바라보는 각도
+                        dock_yaw_in_base = math.atan2(R[0, 1], R[0, 0])
 
-                        rel_x = float(t_base_dock[0])
-                        rel_y = float(t_base_dock[1])
-                        dock_yaw_in_base = math.atan2(R_base_dock[1, 0], R_base_dock[0, 0])
-
-                        # Odom 상의 도크 위치 및 도크 정면 방향 계산
+                        # Odom 상의 도크 위치
                         dock_odom_x = odom_x + rel_x * math.cos(odom_yaw) - rel_y * math.sin(odom_yaw)
                         dock_odom_y = odom_y + rel_x * math.sin(odom_yaw) + rel_y * math.cos(odom_yaw)
                         dock_odom_yaw = normalize_angle(odom_yaw + dock_yaw_in_base)
 
-                        # [중요] 도크가 바라보는 방향을 최종 정렬 목표 각도로 저장
                         self.target_dock_yaw = dock_odom_yaw
 
-                        # 경유지 Odom 좌표 계산
+                        # 경유지: 도크 바닥에서 도크 전방(+dock_odom_yaw)으로 staging_distance 만큼 떨어진 지점
                         stg_dist = self.p['staging_distance']
                         target_odom['x'] = dock_odom_x + stg_dist * math.cos(dock_odom_yaw)
                         target_odom['y'] = dock_odom_y + stg_dist * math.sin(dock_odom_yaw)
+
+                        # 로봇이 경유지로 전진하기 위한 각도
                         target_odom['stg_yaw'] = math.atan2(target_odom['y'] - odom_y, target_odom['x'] - odom_x)
+                        
+                        # 경유지 도착 후 도크를 등지는 각도 (= 도크 정면 방향)
                         target_odom['dock_yaw'] = dock_odom_yaw
 
                         self.get_logger().info(f'도크 Odom 추정: x={dock_odom_x:.2f}, y={dock_odom_y:.2f}, 도크방향={math.degrees(dock_odom_yaw):.1f}°')
@@ -288,10 +308,11 @@ class PrecisionDockingServer(Node):
             self.get_logger().info('도킹 액션 종료: 리소스 반환 완료')
 
     def _handle_macro_drive(self, state, dt, x, y, yaw, tgt):
-        # 1. 경유지 방향으로 제자리 회전
+        # 1. 경유지 방향으로 제자리 회전 (조준)
         if state == DockingState.STAGING_TURN:
             err = normalize_angle(tgt['stg_yaw'] - yaw)
-            if abs(err) < math.radians(1.5):
+            # [수정] 1.5도 -> 1.0도 (약 0.017 rad)로 정밀화하여 직진 편차 최소화
+            if abs(err) < math.radians(1.0):
                 self.publish_vel(0.0, 0.0)
                 return DockingState.STAGING_DRIVE
             w = self.staging_angular_pid.update(err, dt)
@@ -300,16 +321,19 @@ class PrecisionDockingServer(Node):
         # 2. 경유지를 향해 직진 주행
         elif state == DockingState.STAGING_DRIVE:
             dist = math.hypot(tgt['x'] - x, tgt['y'] - y)
-            if dist < 0.05:
+            # [수정] 기존 5cm(0.05m) -> 2cm(0.02m)로 대폭 축소
+            # 경유지 점에 최대한 근접하도록 맞춤
+            if dist < 0.02:
                 self.publish_vel(0.0, 0.0)
                 return DockingState.STAGING_ALIGN
             v = self.staging_linear_pid.update(dist, dt)
             self.publish_vel(v, 0.0)
 
-        # 3. 경유지 도착 후 도킹 진입축(도크를 등지는 방향)으로 제자리 회전
+        # 3. 경유지 도착 후 도킹 진입축(도크를 등지는 방향)으로 정밀 회전
         elif state == DockingState.STAGING_ALIGN:
             err = normalize_angle(tgt['dock_yaw'] - yaw)
-            if abs(err) < math.radians(1.5):
+            # [수정] 1.5도 -> 0.8도 (약 0.014 rad)로 조여 도크 진입 전 정렬각 일치
+            if abs(err) < math.radians(0.8):
                 self.publish_vel(0.0, 0.0)
                 self.new_scan_available = False
                 self.current_transform = np.identity(3, dtype=np.float32)
@@ -356,8 +380,12 @@ class PrecisionDockingServer(Node):
                 if match_cnt >= 10:
                     valid_time, self.icp_fail_count, self.current_transform = curr_time, 0, T
                     R, t = T[:2, :2], T[:2, 2]
+                    
+                    # 도크 축 기준 전후진 잔여 거리
                     raw_dist = float(t[0])
-                    raw_yaw = normalize_angle(-math.atan2(R[1, 0], R[0, 0]))
+                    
+                    # 로봇과 도크 축 사이의 상대 각도 편차 (INIT 수식과 동일한 기준 적용)
+                    raw_yaw = normalize_angle(math.atan2(R[0, 1], R[0, 0]))
 
                     if self.prev_dist is None or (abs(raw_dist - self.prev_dist) <= 0.1 and abs(normalize_angle(raw_yaw - self.prev_yaw)) <= math.radians(10.0)):
                         # 거리 추종 지연(Lag)을 방지하여 실시간 거리 반영
