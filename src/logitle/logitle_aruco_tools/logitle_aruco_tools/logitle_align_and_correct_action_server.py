@@ -48,42 +48,68 @@ LEGACY_ACTION_DEFAULT_TARGET_X = -0.173
 LEGACY_ACTION_DEFAULT_TARGET_Z = 0.392
 ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG = -87.0
 ACTION_DEFAULT_YAW_TOLERANCE_DEG = 3.0
+ACTION_DEFAULT_Z_TOLERANCE = 0.007
 
 ALIGN_TARGET_PRESETS = {
     24: {
         "node": "N5",
         "target_x": -0.189,
-        "target_z": 0.389,
+        "target_z": 0.376,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": -87.0,
+        # Two-marker yaw is accurate; alignment fixes only marker x/z, so a
+        # laterally offset start can end several degrees off -87.
+        "yaw_tolerance_deg": 8.0,
     },
     25: {
         "node": "N6",
-        "target_x": -0.167,
-        "target_z": 0.398,
+        "target_x": -0.157,
+        "target_z": 0.384,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": -87.0,
+        # Two-marker yaw is accurate; alignment fixes only marker x/z, so a
+        # laterally offset start can end several degrees off -87.
+        "yaw_tolerance_deg": 8.0,
+    },
+    28: {
+        "node": "N6",
+        "target_x": 0.153,
+        "target_z": 0.361,
+        "z_tolerance": 0.010,
+        "check_yaw": True,
+        "expected_base_yaw_deg": -87.0,
+        # Two-marker yaw is accurate; alignment fixes only marker x/z, so a
+        # laterally offset start can end several degrees off -87.
+        "yaw_tolerance_deg": 8.0,
     },
     26: {
         "node": "N4",
-        "target_x": -0.012,
-        "target_z": 0.381,
+        "target_x": -0.009,
+        "target_z": 0.385,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": 0.0,
     },
     27: {
         "node": "N3",
-        "target_x": -0.020,
-        "target_z": 0.403,
+        "target_x": 0.001,
+        "target_z": 0.397,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": 0.0,
     },
     29: {
         "node": "N5",
         "target_x": 0.185,
-        "target_z": 0.382,
+        "target_z": 0.372,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": -87.0,
+        # Two-marker yaw is accurate; alignment fixes only marker x/z, so a
+        # laterally offset start can end several degrees off -87.
+        "yaw_tolerance_deg": 8.0,
     },
 }
 
@@ -284,6 +310,7 @@ class AlignAndCorrectActionServer(Node):
             f"check_yaw={params['check_yaw']}; "
             f"expected_base_yaw_deg={params['expected_base_yaw_deg']:.1f}; "
             f"yaw_tolerance_deg={params['yaw_tolerance_deg']:.1f}; "
+            f"z_tolerance={params['z_tolerance']:.3f}m; "
             f"align_timeout={params['align_timeout_sec']:.1f}s; apply_correction={goal.apply_correction}"
             f"{preset_text}"
         )
@@ -346,6 +373,7 @@ class AlignAndCorrectActionServer(Node):
         check_yaw = bool(goal.check_yaw)
         expected_base_yaw_deg = finite_or_default(goal.expected_base_yaw_deg, ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG)
         yaw_tolerance_deg = positive_or_default(goal.yaw_tolerance_deg, self.args.yaw_tolerance_deg)
+        z_tolerance = positive_or_default(goal.z_tolerance, self.args.z_tolerance)
 
         if preset:
             target_x_omitted = is_close(goal.target_x, ACTION_DEFAULT_TARGET_X) or is_close(
@@ -367,6 +395,16 @@ class AlignAndCorrectActionServer(Node):
                 and is_close(goal.expected_base_yaw_deg, ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG)
             ):
                 expected_base_yaw_deg = float(preset["expected_base_yaw_deg"])
+            if (
+                preset.get("yaw_tolerance_deg") is not None
+                and is_close(goal.yaw_tolerance_deg, ACTION_DEFAULT_YAW_TOLERANCE_DEG)
+            ):
+                yaw_tolerance_deg = float(preset["yaw_tolerance_deg"])
+            if (
+                preset.get("z_tolerance") is not None
+                and is_close(goal.z_tolerance, ACTION_DEFAULT_Z_TOLERANCE)
+            ):
+                z_tolerance = float(preset["z_tolerance"])
 
         return {
             "timeout_sec": positive_or_default(goal.timeout_sec, self.args.timeout_sec),
@@ -375,7 +413,7 @@ class AlignAndCorrectActionServer(Node):
             "target_x": target_x,
             "target_z": target_z,
             "x_tolerance": positive_or_default(goal.x_tolerance, self.args.x_tolerance),
-            "z_tolerance": positive_or_default(goal.z_tolerance, self.args.z_tolerance),
+            "z_tolerance": z_tolerance,
             "z_min_stop": positive_or_default(goal.z_min_stop, self.args.z_min_stop),
             "stable_sec": positive_or_default(goal.stable_sec, self.args.stable_sec),
             "max_linear": positive_or_default(goal.max_linear, self.args.max_linear),

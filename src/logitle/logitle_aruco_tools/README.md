@@ -162,10 +162,19 @@ Nav2로 5번/6번 노드 근처 이동
 ```
 
 Action goal에서 `target_x`, `target_z`를 생략하면 `marker_id`에 맞는 현장 측정 preset이 자동 적용됩니다.
-예를 들어 6번 좌표의 ID25는 `target_x=-0.167m`, `target_z=0.398m`,
+예를 들어 6번 좌표의 ID25는 `target_x=-0.157m`, `target_z=0.384m`,
 `expected_base_yaw_deg=-87deg` preset을 사용합니다.
-공통 정렬 기준은 `x_tolerance=0.005m`, `z_tolerance=0.007m`,
+Action 기본 정렬 기준은 `x_tolerance=0.005m`, `z_tolerance=0.007m`,
 `wall_yaw_tolerance_deg=2deg`, `yaw_tolerance_deg=3deg`입니다.
+단, preset이 적용되는 marker는 Goal이 기본값을 보낼 때 다음 preset 값을 우선 사용합니다.
+
+- 모든 preset: `z_tolerance=0.010m`. 약 0.38m 거리, 320x240 해상도에서 마커 거리 추정이
+  약 0.7cm 단위로 바뀌므로, 0.007m는 경계에서 정렬 완료와 재정렬을 반복할 수 있습니다.
+- N5/N6 preset: `yaw_tolerance_deg=8deg`. 이 값은 **pose correction 단계의 허용 범위**이며,
+  로봇 방향을 -87deg로 정렬하는 값이 아닙니다. 정렬은 마커 하나의 x/z만 맞추므로 노드에서
+  옆으로 치우쳐 시작하면 정렬 후 방향이 몇 도 틀어질 수 있습니다(로봇1 N5: 약 -93deg).
+  두 마커 방식의 yaw는 정확하므로 `/initialpose`에는 실제 방향이 반영됩니다. 물리적으로
+  방향까지 맞춰야 하는 작업이라면 두 마커 기반 방향 정렬을 후속으로 추가해야 합니다.
 `check_wall_yaw` 기본값은 `false`입니다. 단일 마커의 벽 방향 추정이 두 방향으로
 튀는 현장에서 정렬이 발산하는 것을 막기 위한 설정입니다. 필요한 경우에만 Goal에서
 `check_wall_yaw: true`를 명시해 벽 방향 정렬을 활성화합니다. `check_yaw`는 정렬 후
@@ -200,32 +209,47 @@ Nav2, 수동 조종 노드 또는 이전에 남은 Action 서버가 동시에 `/
 
 ```text
 N3 / ID27
-target_x = -0.020
-target_z = 0.403
-check_yaw = false
-비고: 오른쪽 벽 기준, AMCL 수렴 후 yaw 재측정 필요
+target_x = 0.001
+target_z = 0.397
+expected_base_yaw_deg = 0.0      (오른쪽 벽, 마커 하나: yaw fallback)
+yaw_tolerance_deg = 3.0
 
 N4 / ID26
-target_x = -0.012
-target_z = 0.381
-check_yaw = false
-비고: 오른쪽 벽 기준, AMCL 수렴 후 yaw 재측정 필요
+target_x = -0.009
+target_z = 0.385
+expected_base_yaw_deg = 0.0      (오른쪽 벽, 마커 하나: yaw fallback)
+yaw_tolerance_deg = 3.0
 
 N5 / ID24
 target_x = -0.189
-target_z = 0.389
-expected_base_yaw_deg = -87.0
+target_z = 0.376
+expected_base_yaw_deg = -87.0    (두 마커: ID24 + ID29)
+yaw_tolerance_deg = 8.0
 
 N5 / ID29
 target_x = 0.185
-target_z = 0.382
+target_z = 0.372
 expected_base_yaw_deg = -87.0
+yaw_tolerance_deg = 8.0
 
 N6 / ID25
-target_x = -0.167
-target_z = 0.398
+target_x = -0.157
+target_z = 0.384
+expected_base_yaw_deg = -87.0    (두 마커: ID25 + ID28)
+yaw_tolerance_deg = 8.0
+
+N6 / ID28
+target_x = 0.153
+target_z = 0.361                  (잠정값: 로봇2·3 평균)
 expected_base_yaw_deg = -87.0
+yaw_tolerance_deg = 8.0
+
+모든 preset: z_tolerance = 0.010
 ```
+
+preset의 target 값은 로봇1·2·3에서 같은 노드에 놓고 측정한 값의 중앙값입니다(2026-10-06).
+로봇별로 일정한 오프셋은 없었고 차이는 주로 로봇 배치 위치에서 생겨, 로봇별 preset 대신
+공통 preset을 사용합니다.
 
 예를 들어 N4의 ID26은 다음처럼 `marker_id`만 보내도 N4 preset이 적용됩니다.
 
