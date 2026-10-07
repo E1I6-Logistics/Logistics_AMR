@@ -24,11 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'precision_docking_ICP_server = logitle_docking.precision_docking_ICP_server:main',
-            'precision_docking_ICP_align_server = logitle_docking.precision_docking_ICP_align_server:main',
-            'precision_docking_ICP_align_latch_server = logitle_docking.precision_docking_ICP_align_latch_server:main',
-            'precision_docking_ICP_align_server_V2 = logitle_docking.precision_docking_ICP_align_server_V2:main',
-
+            'precision_docking_server = logitle_docking.precision_docking_server:main',
         ],
     },
 )

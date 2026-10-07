@@ -134,12 +134,24 @@ def generate_launch_description() -> LaunchDescription:
             )
         )
 
+    # Use the Raspberry Pi libcamera build in /usr/local. Sourcing ROS puts
+    # /opt/ros/jazzy/lib (ros-jazzy-libcamera) first in LD_LIBRARY_PATH, and
+    # that build cannot start the Raspberry Pi IPA ("Failed to call start"),
+    # so the camera publishes no frames.
+    rpi_libcamera_dir = '/usr/local/lib/aarch64-linux-gnu'
+    additional_env = {}
+    if os.path.isdir(os.path.join(rpi_libcamera_dir, 'libcamera')):
+        additional_env['LD_LIBRARY_PATH'] = os.pathsep.join(
+            filter(None, [rpi_libcamera_dir, os.environ.get('LD_LIBRARY_PATH', '')])
+        )
+
     container = ComposableNodeContainer(
         name='camera_container',
         namespace='',
         package='rclcpp_components',
         executable='component_container',
         composable_node_descriptions=composable_nodes,
+        additional_env=additional_env,
     )
 
     return LaunchDescription([
