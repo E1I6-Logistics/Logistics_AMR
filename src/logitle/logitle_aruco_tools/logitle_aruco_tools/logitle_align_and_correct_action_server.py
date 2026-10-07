@@ -140,6 +140,9 @@ WALL_PAIR_TARGETS = {
         # Measured center spacing; the marker map has 0.303.
         "marker_spacing": 0.299,
     },
+    # A node may also use a single marker: set right_marker to None and
+    # center_offset to the node position along the wall from that marker
+    # center (robot's right +).
 }
 
 
@@ -176,6 +179,18 @@ def fit_wall_line(scan, args):
     if rms > args.wall_fit_max_rms:
         return None
     return float(k), float(b)
+
+
+def parse_node_trims(text):
+    """Parse "N5:0.015,N6:-0.01" into {"N5": 0.015, "N6": -0.01}; "none" is empty."""
+    trims = {}
+    for item in text.split(","):
+        item = item.strip()
+        if not item or item.lower() == "none":
+            continue
+        node, value = item.split(":")
+        trims[node.strip()] = float(value)
+    return trims
 
 
 def ray_wall_along(origin_xy, direction_xy, k, b):
@@ -416,7 +431,9 @@ class AlignAndCorrectActionServer(Node):
         if params["wall_pair"]:
             pair = params["wall_pair"]
             preset_text += (
-                f"; wall_pair={pair['left_marker']}+{pair['right_marker']}; "
+                f"; wall_markers={pair['left_marker']}"
+                + (f"+{pair['right_marker']}" if pair["right_marker"] is not None else "")
+                + "; "
                 f"wall_distance={pair['wall_distance']:.3f}m; "
                 f"center_offset={pair['center_offset']:.3f}m"
             )
@@ -444,6 +461,9 @@ class AlignAndCorrectActionServer(Node):
 
             if not align_result["align_success"]:
                 code = RESULT_MARKER_LOST if align_result["marker_lost"] else RESULT_ALIGN_FAILED
+                self.get_logger().warn(
+                    f"Align/correct goal marker_id={marker_id} failed in alignment: {align_result['align_message']}"
+                )
                 result = self.make_result(False, code, align_result["align_message"], **align_result)
                 goal_handle.abort()
                 return result
@@ -466,6 +486,10 @@ class AlignAndCorrectActionServer(Node):
             merged = dict(align_result)
             merged.update(correction)
             if not correction["correction_success"]:
+                self.get_logger().warn(
+                    f"Align/correct goal marker_id={marker_id} failed in pose correction: "
+                    f"{correction.get('correction_message', '')}"
+                )
                 result = self.make_result(
                     False,
                     RESULT_CORRECTION_FAILED,
@@ -565,16 +589,28 @@ class AlignAndCorrectActionServer(Node):
         config = WALL_PAIR_TARGETS.get(node)
         if config is None:
             return None
-        left = self.markers.get(config["left_marker"])
-        right = self.markers.get(config["right_marker"])
-        if left is None or right is None:
+        marker_ids = [m for m in (config["left_marker"], config["right_marker"]) if m is not None]
+        missing = [m for m in marker_ids if m not in self.markers]
+        if missing:
             self.get_logger().warn(
-                f"Wall pair alignment for {node} disabled: marker map lacks "
-                f"ID{config['left_marker']} or ID{config['right_marker']}"
+                f"Wall alignment for {node} disabled: marker map lacks "
+                + ", ".join(f"ID{m}" for m in missing)
             )
             return None
-        map_spacing = float(np.linalg.norm(np.asarray(right.position[:2]) - np.asarray(left.position[:2])))
-        return dict({"marker_spacing": map_spacing}, **config, node=node)
+        map_spacing = None
+        if config["right_marker"] is not None:
+            left = self.markers[config["left_marker"]]
+            right = self.markers[config["right_marker"]]
+            map_spacing = float(np.linalg.norm(np.asarray(right.position[:2]) - np.asarray(left.position[:2])))
+        lateral_trim = parse_node_trims(self.args.pair_lateral_trims).get(node, 0.0)
+        heading_trim = math.radians(parse_node_trims(self.args.pair_heading_trims).get(node, 0.0))
+        return dict(
+            {"marker_spacing": map_spacing},
+            **config,
+            node=node,
+            lateral_trim=lateral_trim,
+            heading_trim=heading_trim,
+        )
 
     def validate_params(self, params):
         for key, value in params.items():
@@ -661,7 +697,6 @@ class AlignAndCorrectActionServer(Node):
                 time.sleep(self.args.control_period)
                 continue
 
-            last_marker_seen = True
             msg = pose["msg"]
             x = float(msg.pose.position.x)
             z = float(msg.pose.position.z)
@@ -677,6 +712,28 @@ class AlignAndCorrectActionServer(Node):
             final_x_error = x_error
             final_z_error = z_error
             final_wall_yaw_error = wall_yaw_error
+
+            # A marker far off to the side at the first sighting means the wrong
+            # marker ID or a robot far from the node; driving toward it can hit
+            # whatever stands between (robot1 hit the N3 conveyor on 2026-10-07).
+            if (
+                not last_marker_seen
+                and self.args.max_start_x_error > 0.0
+                and abs(x_error) > self.args.max_start_x_error
+            ):
+                self.stop_robot()
+                return self.align_result(
+                    False,
+                    False,
+                    x,
+                    z,
+                    x_error,
+                    z_error,
+                    final_wall_yaw_error,
+                    f"Marker is {x_error * 100.0:+.1f}cm off center at start "
+                    f"(limit {self.args.max_start_x_error * 100.0:.0f}cm); check the marker ID and start position.",
+                )
+            last_marker_seen = True
 
             if state == "too_close_stop":
                 self.stop_robot()
@@ -798,6 +855,7 @@ class AlignAndCorrectActionServer(Node):
         args = self.args
         started = time.time()
         self.wall_single_offsets = {}
+        wall_failed_since = None
         centering = 0
         stable_hits = 0
         stopped = False
@@ -841,7 +899,17 @@ class AlignAndCorrectActionServer(Node):
                     continue
                 if error == "canceled":
                     continue
+                # Scans can drop out briefly (Nav2 collision_monitor reported
+                # an invalid source right before a robot3 failure), so retry
+                # for a while before giving up.
+                if wall_failed_since is None:
+                    wall_failed_since = time.time()
+                if time.time() - wall_failed_since < args.pair_wall_retry_sec:
+                    self.get_logger().warn(f"Wall measure failed, retrying: {error}")
+                    feedback("waiting_for_wall")
+                    continue
                 return result(False, False, error)
+            wall_failed_since = None
 
             marker = self.fresh_marker(params["marker_id"])
             if marker is not None:
@@ -1047,7 +1115,7 @@ class AlignAndCorrectActionServer(Node):
             self.latest_rays = {}
         fits = []
         rejected_scans = 0
-        rays = {pair["left_marker"]: [], pair["right_marker"]: []}
+        rays = {m: [] for m in (pair["left_marker"], pair["right_marker"]) if m is not None}
         seen_scan = None
         seen_ray = {}
         deadline = time.time() + args.pair_measure_sec
@@ -1095,9 +1163,12 @@ class AlignAndCorrectActionServer(Node):
         single_along = {}
         if left_id in hits:
             single_along[left_id] = hits[left_id] + pair["center_offset"]
-        if right_id in hits:
+        if right_id is not None and right_id in hits:
             single_along[right_id] = hits[right_id] - (pair["marker_spacing"] - pair["center_offset"])
-        if left_id in hits and right_id in hits:
+        if right_id is None:
+            center_along = single_along[left_id]
+            source = f"ID{left_id}"
+        elif left_id in hits and right_id in hits:
             # Interpolate between the two hits by the map ratio: this cancels a
             # bearing scale error (the 320x240 calibration reads the pair about
             # 6% wider than it is near the image edges).
@@ -1113,10 +1184,19 @@ class AlignAndCorrectActionServer(Node):
             offset = self.wall_single_offsets.get(marker_id)
             center_along = single_along[marker_id] + (offset or 0.0)
             source = f"ID{marker_id} only" + (f" (pair offset {offset * 100.0:+.1f}cm)" if offset is not None else "")
-        lateral = -center_along
+        # Per-robot trim: the lateral this robot reads while it sits on the
+        # floor mark (camera calibration error that depends on the node).
+        lateral = -center_along - pair["lateral_trim"]
+        # Per-robot, per-node lidar heading read while the robot is square to
+        # the wall (the wall section in front of the lidar is not perfectly
+        # straight). The wall line itself stays as fitted for the lateral.
+        heading -= pair["heading_trim"]
+        trim_note = f" trim={pair['lateral_trim'] * 100.0:+.1f}cm" if pair["lateral_trim"] else ""
+        if pair["heading_trim"]:
+            trim_note += f" heading_trim={math.degrees(pair['heading_trim']):+.1f}deg"
         self.get_logger().info(
             f"Wall measure: lateral={lateral * 100.0:+.1f}cm distance={distance:.3f}m "
-            f"heading={math.degrees(heading):+.1f}deg markers={source} scans={len(fits)}"
+            f"heading={math.degrees(heading):+.1f}deg markers={source} scans={len(fits)}{trim_note}"
         )
         return {
             "heading": heading,
@@ -1163,11 +1243,18 @@ class AlignAndCorrectActionServer(Node):
         """
         pair = params["wall_pair"]
         left = np.asarray(self.markers[pair["left_marker"]].position[:2], dtype=float)
-        right = np.asarray(self.markers[pair["right_marker"]].position[:2], dtype=float)
-        along = (right - left) / np.linalg.norm(right - left)
-        normal = np.array([along[1], -along[0]])
-        if np.dot(np.asarray(self.markers[pair["left_marker"]].normal[:2], dtype=float), normal) < 0.0:
-            normal = -normal
+        marker_normal = np.asarray(self.markers[pair["left_marker"]].normal[:2], dtype=float)
+        if pair["right_marker"] is None:
+            # One marker: the wall runs perpendicular to its normal; the robot
+            # faces -normal, so its right is (-n_y, n_x).
+            normal = marker_normal / np.linalg.norm(marker_normal)
+            along = np.array([-normal[1], normal[0]])
+        else:
+            right = np.asarray(self.markers[pair["right_marker"]].position[:2], dtype=float)
+            along = (right - left) / np.linalg.norm(right - left)
+            normal = np.array([along[1], -along[0]])
+            if np.dot(marker_normal, normal) < 0.0:
+                normal = -normal
         foot = left + pair["center_offset"] * along
         xy = foot + measured["lateral"] * along + measured["distance"] * normal
         yaw = wrap_angle(math.atan2(-normal[1], -normal[0]) + measured["heading"])
@@ -1408,7 +1495,9 @@ class AlignAndCorrectActionServer(Node):
         with self.pose_input_lock:
             self.active_marker_id = int(marker_id)
             self.wall_marker_ids = (
-                (wall_pair["left_marker"], wall_pair["right_marker"]) if wall_pair else ()
+                tuple(m for m in (wall_pair["left_marker"], wall_pair["right_marker"]) if m is not None)
+                if wall_pair
+                else ()
             )
             if self.camera_info_sub is None:
                 self.camera_info_sub = self.image_node.create_subscription(
@@ -1760,7 +1849,8 @@ def parse_args():
 
     # Wall alignment (WALL_PAIR_TARGETS nodes, preset targets only).
     parser.add_argument("--wall-align", type=bool_arg, default=True)
-    parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=0.3)
+    # Single lidar scans scatter about +-0.4deg in heading on robot1.
+    parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=0.5)
     parser.add_argument("--pair-lateral-tolerance", type=float, default=0.003)
     parser.add_argument("--pair-distance-tolerance", type=float, default=0.005)
     # Bounds for one move: turn angle and drive distance.
@@ -1773,14 +1863,23 @@ def parse_args():
     parser.add_argument("--pair-coarse-max-drive", type=float, default=0.06)
     parser.add_argument("--pair-wall-margin", type=float, default=0.02)
     # A forward center step may pass the target distance by at most this much.
-    parser.add_argument("--pair-max-overshoot", type=float, default=0.02)
+    parser.add_argument("--pair-max-overshoot", type=float, default=0.010)
     parser.add_argument("--pair-max-centering", type=int, default=10)
     # Consecutive in-tolerance measurements needed to finish.
     parser.add_argument("--pair-stable-count", type=int, default=3)
     parser.add_argument("--pair-timeout-sec", type=float, default=90.0)
     parser.add_argument("--pair-settle-sec", type=float, default=0.3)
-    parser.add_argument("--pair-measure-sec", type=float, default=1.0)
+    parser.add_argument("--pair-measure-sec", type=float, default=2.0)
+    # Lateral read on the floor mark, per node: "N5:0.015,N6:-0.01" [m, robot's right +].
+    parser.add_argument("--pair-lateral-trims", default="none")
+    # x/z preset alignment refuses to start when the marker is further off
+    # center than this at its first sighting [m]; 0 disables the check.
+    parser.add_argument("--max-start-x-error", type=float, default=0.15)
+    # Lidar heading read while square to the wall, per node: "N5:-1.6" [deg].
+    parser.add_argument("--pair-heading-trims", default="none")
     parser.add_argument("--pair-min-scans", type=int, default=3)
+    # How long lidar wall fit failures are retried before the goal fails [s].
+    parser.add_argument("--pair-wall-retry-sec", type=float, default=5.0)
     parser.add_argument("--scan-topic", default="/scan")
     # base_scan position in base_footprint (turtlebot3 burger URDF).
     parser.add_argument("--scan-x", type=float, default=-0.032)
@@ -1808,14 +1907,15 @@ def parse_args():
     parser.add_argument("--maneuver-angular", type=float, default=0.25)
     parser.add_argument("--maneuver-min-angular", type=float, default=0.05)
     parser.add_argument("--maneuver-kyaw", type=float, default=1.5)
-    parser.add_argument("--maneuver-yaw-tolerance-deg", type=float, default=0.4)
+    parser.add_argument("--maneuver-yaw-tolerance-deg", type=float, default=0.2)
     # D terms on the odometry velocity, and how far ahead the stop check looks
-    # to cover odometry lag. Measured on robot3 (2026-10-07): P only overshot
-    # turns by 0.40 deg and drives by 1.4 mm on average; with these 0.10 deg
-    # and 0.6 mm.
+    # to cover odometry lag and coasting. Measured 2026-10-07: P only overshot
+    # robot3 turns by 0.40 deg and drives by 1.4 mm; lead 0.1 cut that to 0.10
+    # deg on robot3, but robot1 still turned 0.6 deg commands by up to 1.2 deg.
+    # 0.25 keeps robot1 small turns within about 0.2 deg.
     parser.add_argument("--maneuver-kd-yaw", type=float, default=0.5)
     parser.add_argument("--maneuver-kd-dist", type=float, default=0.5)
-    parser.add_argument("--maneuver-lead-sec", type=float, default=0.1)
+    parser.add_argument("--maneuver-lead-sec", type=float, default=0.25)
     parser.add_argument("--maneuver-period", type=float, default=0.05)
     parser.add_argument("--maneuver-timeout-sec", type=float, default=10.0)
 
