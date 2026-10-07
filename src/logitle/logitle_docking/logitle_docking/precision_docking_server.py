@@ -25,7 +25,7 @@ class DockingState(Enum):
     ICP_SETTLE = 4         # 모션 스큐 방지 정지 대기
     ALIGN_HEADING = 5      # [Pure ICP] 근거리 각도 정밀 정렬
     STRAIGHT_REVERSE = 6   # [Pure ICP] 도크 안으로 정밀 감속 후진
-    ALIGN_YAW = 7          # [Odom/Pose] 도킹 체결 후 도크 방향으로 최종 미세 정렬
+    FINAL_REVERSE = 7      # [Odom] 근거리에서 ICP를 끄고 저속 직선 후진 + yaw 유지
     COMPLETED = 8
 
 
@@ -114,24 +114,31 @@ class PrecisionDockingServer(Node):
         self._reset_state_variables()
 
         # [PID 제어기 설정]
-        self.linear_pid = PID(p=0.5, i=0.0, d=0.02, out_min=0.01, out_max=0.03)
-        self.angular_pid = PID(2.0, 0.05, 0.05, out_min=-0.4, out_max=0.4)
+        self.linear_pid = PID(p=0.1, i=0.0, d=0.02, out_min=0.005, out_max=0.015)
+        self.angular_pid = PID(p=2.0, i=0.0, d=0.10, out_min=-0.30, out_max=0.30)
         self.staging_linear_pid = PID(p=4.0, i=0.01, d=0.02, out_min=0.015, out_max=0.15)
         self.staging_angular_pid = PID(p=2.0, i=0.05, d=0.08, out_min=-0.4, out_max=0.4)
         self.get_logger().info('Two-Phase 정밀 도킹 서버 준비 완료 (Idle 상태)')
+        self.get_logger().info('후진 제어: lateral->target yaw + yaw PD (S-curve feedback)')
 
     def _declare_and_update_params(self):
         params = {
-            'charger_width': 0.01,
-            'wing_length': 0.30, 
-            'wing_angle_deg': 45.0,
-            'robot_rear_length': 0.20, 
-            'roi_x_min': -0.8, 
+            'charger_width': 0.14,
+            'wing_length': 0.10, 
+            'wing_angle_deg': 22.5,
+            'robot_rear_length': 0.08, 
+            'roi_x_min': -1.2, 
             'roi_x_max': 0.15,
             'roi_y_limit': 0.15, 
-            'staging_distance': 0.30, 
-            'final_yaw_tolerance_deg': 1.0,
+            'staging_distance': 0.45, 
             'steering_lock_dist': 0.20, 
+            'reverse_lateral_gain': 1.8,
+            'reverse_max_target_yaw_deg': 6.0,
+            'final_blind_start_dist': 0.20,
+            'final_reverse_speed': 0.015,
+            'final_reverse_tolerance': 0.005,
+            'final_yaw_hold_kp': 1.5,
+            'final_yaw_hold_max_w': 0.12,
             'odom_frame': 'odom', 
             'base_frame': 'base_footprint'
         }
@@ -141,7 +148,6 @@ class PrecisionDockingServer(Node):
                 
         self.p = {name: self.get_parameter(name).value for name in params.keys()}
         self.wing_rad = math.radians(self.p['wing_angle_deg'])
-        self.final_yaw_tol_rad = math.radians(self.p['final_yaw_tolerance_deg'])
 
     def _reset_state_variables(self):
         # /scan callback과 action callback이 공유하는 데이터는 lock으로 보호
@@ -160,7 +166,12 @@ class PrecisionDockingServer(Node):
         self.prev_lateral = None
         self.last_fitness, self.icp_fail_count, self.settle_timer = 0.0, 0, 0.0
         self.target_dist = self.p['robot_rear_length']
-        self.target_dock_yaw = 0.0
+
+        # FINAL_REVERSE(ICP OFF)용 odom 기준값
+        self.final_reverse_start_x = None
+        self.final_reverse_start_y = None
+        self.final_reverse_start_yaw = None
+        self.final_reverse_distance = 0.0
 
     def generate_v_funnel(self):
         pts = []
@@ -216,111 +227,6 @@ class PrecisionDockingServer(Node):
             self.new_scan_available = False
 
         return source_pts
-
-    def validate_dock_shape(
-        self,
-        source_pts,
-        T,
-        target_pts,
-        match_threshold=0.035
-    ):
-        """
-        ICP 결과가 실제 V형 도킹 스테이션 형상을
-        충분히 포함하고 있는지 검사한다.
-
-        조건:
-        - 중앙부가 보여야 함
-        - 왼쪽 wing이 보여야 함
-        - 오른쪽 wing이 보여야 함
-        """
-
-        # source LaserScan을 dock model 좌표계로 변환
-        transformed = (
-            source_pts @ T[:2, :2].T
-        ) + T[:2, 2]
-
-        # target model과 최근접점 검색
-        distances, indices = self.target_tree.query(
-            transformed,
-            workers=1
-        )
-
-        valid = distances < match_threshold
-
-        if np.sum(valid) < 10:
-            return False, {
-                'center': 0,
-                'left': 0,
-                'right': 0
-            }
-
-        # 같은 target 점에 여러 scan point가 매칭되는 것을 방지
-        matched_indices = np.unique(
-            indices[valid]
-        )
-
-        matched_target = target_pts[
-            matched_indices
-        ]
-
-        half_w = (
-            self.p['charger_width'] / 2.0
-        )
-
-        # -----------------------------
-        # 중앙부
-        # x ≈ 0
-        # -----------------------------
-        center_mask = (
-            np.abs(
-                matched_target[:, 0]
-            ) < 0.005
-        )
-
-        # -----------------------------
-        # 왼쪽 wing
-        # -----------------------------
-        left_mask = (
-            matched_target[:, 1]
-            > half_w + 0.003
-        )
-
-        # -----------------------------
-        # 오른쪽 wing
-        # -----------------------------
-        right_mask = (
-            matched_target[:, 1]
-            < -half_w - 0.003
-        )
-
-        center_count = int(
-            np.sum(center_mask)
-        )
-
-        left_count = int(
-            np.sum(left_mask)
-        )
-
-        right_count = int(
-            np.sum(right_mask)
-        )
-
-        # 최초 시작값
-        center_ok = center_count >= 3
-        left_ok = left_count >= 4
-        right_ok = right_count >= 4
-
-        shape_valid = (
-            center_ok
-            and left_ok
-            and right_ok
-        )
-
-        return shape_valid, {
-            'center': center_count,
-            'left': left_count,
-            'right': right_count
-        }
 
     def _discard_pending_scan(self):
         """현재 대기 중인 scan만 소비 처리한다. 배열 자체는 callback이 관리한다."""
@@ -404,19 +310,12 @@ class PrecisionDockingServer(Node):
                         search_radius=0.8
                     )
 
-                    shape_valid, support = self.validate_dock_shape(
-                        source_pts,
-                        T,
-                        active_target_pts
-                    )
-
-                    if match_cnt >= 10 and shape_valid:
-                    
+                    # 실제 V 모델(wing_angle_deg=22.5°)에 대한 ICP 매칭만 사용한다.
+                    # 별도의 L/C/R 형상 강제 검사는 사용하지 않는다.
+                    if match_cnt >= 10:
                         self.get_logger().info(
-                            f'도크 형상 확인: '
-                            f'L={support["left"]}, '
-                            f'C={support["center"]}, '
-                            f'R={support["right"]}'
+                            f'초기 ICP 도크 인식 성공: '
+                            f'match={match_cnt}, fitness={fitness:.3f}'
                         )
 
                         # 기존 도크 위치 계산
@@ -431,8 +330,6 @@ class PrecisionDockingServer(Node):
                         dock_odom_y = odom_y + rel_x * math.sin(odom_yaw) + rel_y * math.cos(odom_yaw)
                         dock_odom_yaw = normalize_angle(odom_yaw + dock_yaw_in_base)
 
-                        self.target_dock_yaw = dock_odom_yaw
-
                         stg_dist = self.p['staging_distance']
                         target_odom['x'] = dock_odom_x + stg_dist * math.cos(dock_odom_yaw)
                         target_odom['y'] = dock_odom_y + stg_dist * math.sin(dock_odom_yaw)
@@ -445,11 +342,8 @@ class PrecisionDockingServer(Node):
                         state = DockingState.STAGING_TURN
                     else:
                         self.get_logger().warn(
-                            f'도크 후보 거부: '
-                            f'match={match_cnt}, '
-                            f'L={support["left"]}, '
-                            f'C={support["center"]}, '
-                            f'R={support["right"]}'
+                            f'초기 ICP 도크 인식 실패: '
+                            f'match={match_cnt}, fitness={fitness:.3f}'
                         )
 
                 # Phase 2: Odom 기반 경유지 전진 주행 및 후진 자세 회전
@@ -459,9 +353,12 @@ class PrecisionDockingServer(Node):
                         continue
                     state = self._handle_macro_drive(state, dt, odom_x, odom_y, odom_yaw, target_odom)
 
-                # Phase 3 & 4: 센서 기반 후진 도킹 및 최종 정면 정렬
+                # Phase 3 & 4: ICP 후진 도킹 + 근거리 odom 최종 후진
                 elif state.value >= 4:
-                    state, last_valid_time = self._handle_micro_docking(state, dt, curr_time, last_valid_time, active_target_pts, odom_yaw)
+                    state, last_valid_time = self._handle_micro_docking(
+                        state, dt, curr_time, last_valid_time,
+                        active_target_pts, odom_x, odom_y, odom_yaw
+                    )
                     if state == DockingState.COMPLETED:
                         goal_handle.succeed()
                         return PrecisionDock.Result(success=True)
@@ -475,67 +372,166 @@ class PrecisionDockingServer(Node):
             self.get_logger().info('도킹 액션 종료: 리소스 반환 완료')
 
     def _handle_macro_drive(self, state, dt, x, y, yaw, tgt):
+        # ---------------------------------------------------------
+        # 경유지 제어는 안정적이었던 기존 방식으로 원상복구
+        # 1) 경유지 방향으로 제자리 회전
+        # 2) 경유지까지 직선 전진 (주행 중 추가 heading 보정 없음)
+        # 3) 경유지 도착 후 도크 진입축으로 제자리 정렬
+        # ---------------------------------------------------------
         if state == DockingState.STAGING_TURN:
             err = normalize_angle(tgt['stg_yaw'] - yaw)
+
+            # 기존 허용오차 1.5도로 복구
             if abs(err) < math.radians(1.5):
                 self.publish_vel(0.0, 0.0)
+                self.staging_angular_pid.reset()
                 return DockingState.STAGING_DRIVE
+
             w = self.staging_angular_pid.update(err, dt)
             self.publish_vel(0.0, w)
 
         elif state == DockingState.STAGING_DRIVE:
             dist = math.hypot(tgt['x'] - x, tgt['y'] - y)
+
+            # 기존 경유지 도착 조건 2 cm로 복구
             if dist < 0.02:
                 self.publish_vel(0.0, 0.0)
+                self.staging_linear_pid.reset()
+                self.staging_angular_pid.reset()
+                self.get_logger().info(
+                    f'경유지 도착: dist={dist:.3f}m'
+                )
                 return DockingState.STAGING_ALIGN
+
+            # 기존 방식: 최초 STAGING_TURN에서 맞춘 방향으로 직선 전진
             v = self.staging_linear_pid.update(dist, dt)
             self.publish_vel(v, 0.0)
 
         elif state == DockingState.STAGING_ALIGN:
             err = normalize_angle(tgt['dock_yaw'] - yaw)
+
+            # 기존 1.0도 허용오차로 복구
             if abs(err) < math.radians(1.0):
                 self.publish_vel(0.0, 0.0)
                 self._discard_pending_scan()
+
+                # 이 부분은 후진 ICP 안정화를 위해 유지:
+                # 경유지에서는 도크가 staging_distance만큼 떨어져 있다고 보고
+                # micro ICP 초기 transform을 예상 거리에서 시작한다.
                 self.current_transform = np.identity(3, dtype=np.float32)
-                self.filt_dock_dist = self.filt_rel_yaw = self.filt_lateral_error = self.prev_dist = self.prev_yaw = self.prev_lateral = None
+                self.current_transform[0, 2] = self.p['staging_distance']
+
+                self.filt_dock_dist = None
+                self.filt_rel_yaw = None
+                self.filt_lateral_error = None
+                self.prev_dist = None
+                self.prev_yaw = None
+                self.prev_lateral = None
                 self.settle_timer = 0.5
+                self.staging_angular_pid.reset()
                 return DockingState.ICP_SETTLE
+
             w = self.staging_angular_pid.update(err, dt)
             self.publish_vel(0.0, w)
 
         return state
 
-    def _handle_micro_docking(self, state, dt, curr_time, valid_time, active_pts, odom_yaw):
+    def _handle_micro_docking(
+        self, state, dt, curr_time, valid_time,
+        active_pts, odom_x, odom_y, odom_yaw
+    ):
         if state == DockingState.ICP_SETTLE:
             self.publish_vel(0, 0)
             self.settle_timer -= dt
             if self.settle_timer <= 0:
                 self.get_logger().info('경유지 도착: 후진 도킹 시작')
-                return DockingState.ALIGN_HEADING, valid_time
+                # [FIX 2] micro docking 시작 시점부터 ICP timeout을 다시 센다.
+                self.icp_fail_count = 0
+                return DockingState.ALIGN_HEADING, curr_time
 
-        elif state == DockingState.ALIGN_YAW:
-            if odom_yaw is None:
-                self.publish_vel(0, 0)
+        elif state == DockingState.FINAL_REVERSE:
+            # ---------------------------------------------------------
+            # 근거리 최종 후진:
+            # ICP는 완전히 사용하지 않고, FINAL_REVERSE 진입 순간의 yaw를
+            # odom 기준으로 유지하면서 남은 거리만 저속 후진한다.
+            # ---------------------------------------------------------
+            if odom_x is None or odom_y is None or odom_yaw is None:
+                self.publish_vel(0.0, 0.0)
                 return state, valid_time
 
-            yaw_err = normalize_angle(self.target_dock_yaw - odom_yaw)
-            if abs(yaw_err) < self.final_yaw_tol_rad:
-                self.publish_vel(0, 0)
-                self.get_logger().info(f'도킹 완료: 최종 정렬 완료 (오차: {math.degrees(yaw_err):.2f}°)')
-                return DockingState.COMPLETED, valid_time
+            if (
+                self.final_reverse_start_x is None
+                or self.final_reverse_start_y is None
+                or self.final_reverse_start_yaw is None
+            ):
+                self.publish_vel(0.0, 0.0)
+                self.get_logger().warn('FINAL_REVERSE 시작 odom/yaw가 없어 정지합니다.')
+                return state, valid_time
 
-            w_cmd = self.staging_angular_pid.update(yaw_err, dt)
-            self.publish_vel(0, w_cmd)
-            return state, valid_time
+            moved = math.hypot(
+                odom_x - self.final_reverse_start_x,
+                odom_y - self.final_reverse_start_y
+            )
+            remaining = max(0.0, self.final_reverse_distance - moved)
+
+            if remaining <= self.p['final_reverse_tolerance']:
+                self.publish_vel(0.0, 0.0)
+                self.get_logger().info(
+                    f'최종 직선 후진 완료 -> 도킹 완료: '
+                    f'moved={moved:.3f}m, '
+                    f'target_move={self.final_reverse_distance:.3f}m'
+                )
+                return DockingState.COMPLETED, curr_time
+
+            # FINAL_REVERSE 시작 순간의 yaw만 유지한다.
+            # 초기 도크 인식 yaw로 마지막 제자리 회전은 하지 않는다.
+            yaw_error = normalize_angle(
+                self.final_reverse_start_yaw - odom_yaw
+            )
+            w_cmd = self.p['final_yaw_hold_kp'] * yaw_error
+            w_cmd = float(np.clip(
+                w_cmd,
+                -self.p['final_yaw_hold_max_w'],
+                self.p['final_yaw_hold_max_w']
+            ))
+
+            self.publish_vel(-self.p['final_reverse_speed'], w_cmd)
+            return state, curr_time
 
         else:
+            # [FIX 7] 완료조건 선검사
+            # 후진 중에는 새 ICP보다 먼저 마지막 정상 ICP 거리로 완료 여부를 확인한다.
+            # 도크에 아주 가까워진 뒤 새 scan/ICP가 튀어도, 아래의 ICP reject return 때문에
+            # 완료 조건이 실행되지 못하는 상황을 방지한다.
+            if (
+                state == DockingState.STRAIGHT_REVERSE
+                and self.filt_dock_dist is not None
+            ):
+                dist_error = max(
+                    0.0,
+                    self.filt_dock_dist - self.target_dist
+                )
+
+                if dist_error <= 0.015:
+                    self.publish_vel(0.0, 0.0)
+                    self.get_logger().info(
+                        f'도크 접점 도달 완료 ' 
+                        f'(dock_dist={self.filt_dock_dist:.3f}m, ' 
+                        f'target={self.target_dist:.3f}m, ' 
+                        f'남은오차={dist_error:.3f}m). ' 
+                        f'도킹 완료.'
+                    )
+                    return DockingState.COMPLETED, curr_time
+
             # 매 제어 주기마다 최신 scan 한 장만 snapshot으로 가져온다.
             # 이후 ICP가 도는 동안 scan_callback이 새 데이터를 써도
             # 현재 ICP 입력은 변하지 않는다.
             source_pts = self._take_scan_snapshot()
 
             if source_pts is not None:
-                s_rad, max_iter = (1.5, 25) if self.filt_dock_dist is None else (0.5, 12)
+                # [FIX 3] 이전 1.5m/0.5m는 주변 구조물까지 correspondence 후보가 되어
+                # 잘못된 각도(예: 28~50도)로 수렴할 수 있으므로 탐색 반경을 제한한다.
+                s_rad, max_iter = (0.15, 25) if self.filt_dock_dist is None else (0.10, 12)
                 T, fitness, match_cnt = icp_2d(
                     source_pts,
                     self.target_tree,
@@ -544,13 +540,8 @@ class PrecisionDockingServer(Node):
                     max_iter,
                     s_rad
                 )
-                shape_valid, support = self.validate_dock_shape(
-                    source_pts,
-                    T,
-                    active_pts
-                )
 
-                if match_cnt >= 10 and shape_valid:
+                if match_cnt >= 10:
                     R, t = T[:2, :2], T[:2, 2]
 
                     raw_dist = float(t[0])
@@ -564,7 +555,24 @@ class PrecisionDockingServer(Node):
                     # ICP 이상값 검사
                     # -----------------------------
                     if self.prev_dist is None:
-                        icp_valid = True
+                        # [FIX 4] 첫 ICP/재획득 ICP도 무조건 신뢰하지 않는다.
+                        # current_transform은 STAGING_ALIGN의 예상 pose 또는 마지막 정상 ICP pose다.
+                        expected_R = self.current_transform[:2, :2]
+                        expected_dist = float(self.current_transform[0, 2])
+                        expected_lateral = float(self.current_transform[1, 2])
+                        expected_yaw = normalize_angle(
+                            math.atan2(expected_R[0, 1], expected_R[0, 0])
+                        )
+
+                        dist_jump = abs(raw_dist - expected_dist)
+                        lateral_jump = abs(raw_lateral - expected_lateral)
+                        yaw_jump = abs(normalize_angle(raw_yaw - expected_yaw))
+
+                        icp_valid = (
+                            dist_jump <= 0.10
+                            and lateral_jump <= 0.05
+                            and yaw_jump <= math.radians(10.0)
+                        )
 
                     else:
                         dist_jump = abs(
@@ -650,62 +658,49 @@ class PrecisionDockingServer(Node):
                             f'ICP 이상값 거부: '
                             f'dist={raw_dist:.3f}, '
                             f'lateral={raw_lateral:.3f}, '
-                            f'yaw={math.degrees(raw_yaw):.1f}°'
+                            f'yaw={math.degrees(raw_yaw):.1f}°, '
+                            f'dDist={dist_jump:.3f}, '
+                            f'dLat={lateral_jump:.3f}, '
+                            f'dYaw={math.degrees(yaw_jump):.1f}°, '
+                            f'fail={self.icp_fail_count}'
                         )
 
+                        # [FIX 6] 이상 ICP가 나온 순간에는 이전 필터값으로 계속 후진하지 않는다.
+                        # 즉시 정지하고, 마지막 정상 transform/filter를 유지한 채 다음 scan에서 재획득한다.
+                        self.publish_vel(0.0, 0.0)
+
                         if self.icp_fail_count > 3:
-                            self.current_transform = np.identity(3,dtype=np.float32)
+                            self.get_logger().warn(
+                                'ICP 연속 실패 - 현재 위치에서 재획득 대기'
+                            )
+                            self.icp_fail_count = 0
 
-                            # 다음 ICP를 새 기준으로 재획득
-                            self.prev_dist = None
-                            self.prev_yaw = None
-                            self.prev_lateral = None
-
-                            self.filt_dock_dist = None
-                            self.filt_rel_yaw = None
-                            self.filt_lateral_error = None
-
-                            self.publish_vel(0.0, 0.0)
-
-                            return DockingState.ALIGN_HEADING, valid_time
+                        return state, valid_time
 
                 # ---------------------------------
                 # matching 자체가 제대로 안 됨
                 # ---------------------------------
                 else:
                     self.icp_fail_count += 1
+
                     self.get_logger().warn(
-                        f'도크 후보 거부: '
+                        f'ICP match 부족: '
                         f'match={match_cnt}, '
-                        f'L={support["left"]}, '
-                        f'C={support["center"]}, '
-                        f'R={support["right"]}'
+                        f'fitness={fitness:.3f}, '
+                        f'fail={self.icp_fail_count}'
                     )
 
+                    # [FIX 6] match 부족 시에도 stale filter 값으로 계속 후진하지 않는다.
+                    # 즉시 정지하고 마지막 정상 transform/filter를 유지한 채 다음 scan을 기다린다.
+                    self.publish_vel(0.0, 0.0)
+
                     if self.icp_fail_count > 3:
-                        self.current_transform = np.identity(
-                            3,
-                            dtype=np.float32
-                        )
-
-                        # 다음 ICP를 새 기준으로 재획득
-                        self.prev_dist = None
-                        self.prev_yaw = None
-                        self.prev_lateral = None
-
-                        self.filt_dock_dist = None
-                        self.filt_rel_yaw = None
-                        self.filt_lateral_error = None
-                        self.publish_vel(0.0, 0.0)
                         self.get_logger().warn(
-                            f'도크 후보 거부: '
-                            f'match={match_cnt}, '
-                            f'L={support["left"]}, '
-                            f'C={support["center"]}, '
-                            f'R={support["right"]}'
+                            'ICP match 연속 실패 - 현재 위치에서 재획득 대기'
                         )
+                        self.icp_fail_count = 0
 
-                        return DockingState.ALIGN_HEADING, valid_time
+                    return state, valid_time
             if (curr_time - valid_time).nanoseconds / 1e9 > 1.0:
                 self.publish_vel(0, 0)
                 return state, valid_time
@@ -729,6 +724,38 @@ class PrecisionDockingServer(Node):
                     )
 
                     # --------------------------------
+                    # 근거리 진입: 여기부터 ICP를 끄고 odom 직선 후진
+                    # --------------------------------
+                    if self.filt_dock_dist <= self.p['final_blind_start_dist']:
+                        if odom_x is None or odom_y is None or odom_yaw is None:
+                            self.publish_vel(0.0, 0.0)
+                            return state, valid_time
+
+                        self.publish_vel(0.0, 0.0)
+
+                        self.final_reverse_start_x = odom_x
+                        self.final_reverse_start_y = odom_y
+                        self.final_reverse_start_yaw = odom_yaw
+                        self.final_reverse_distance = max(
+                            0.0,
+                            self.filt_dock_dist - self.target_dist
+                        )
+
+                        self.get_logger().info(
+                            f'ICP 종료 -> 최종 직선 후진 시작: ' 
+                            f'dock_dist={self.filt_dock_dist:.3f}m, ' 
+                            f'target={self.target_dist:.3f}m, ' 
+                            f'남은후진={self.final_reverse_distance:.3f}m, ' 
+                            f'speed={self.p["final_reverse_speed"]:.3f}m/s'
+                        )
+
+                        if self.final_reverse_distance <= self.p['final_reverse_tolerance']:
+                            self.get_logger().info('추가 후진 거리 없음 -> 도킹 완료')
+                            return DockingState.COMPLETED, curr_time
+
+                        return DockingState.FINAL_REVERSE, curr_time
+
+                    # --------------------------------
                     # 목표 도킹 거리 도달
                     # --------------------------------
                     if dist_error <= 0.015:
@@ -740,12 +767,12 @@ class PrecisionDockingServer(Node):
                         self.get_logger().info(
                             f'도크 접점 도달 완료 '
                             f'(남은오차: {dist_error:.3f}m). '
-                            f'최종 정렬로 이동.'
+                            f'도킹 완료.'
                         )
 
                         return (
-                            DockingState.ALIGN_YAW,
-                            valid_time
+                            DockingState.COMPLETED,
+                            curr_time
                         )
 
                     # --------------------------------
@@ -759,32 +786,35 @@ class PrecisionDockingServer(Node):
                     v = -v_mag
 
                     # --------------------------------
-                    # 도크 중심선 lateral 보정
+                    # lateral 오차 -> 목표 yaw -> yaw PD 제어
                     # --------------------------------
-                    lateral_gain = 1.5
+                    # 차동구동(논홀로노믹) 로봇은 옆으로 직접 움직일 수 없으므로
+                    # 도크 중심선 lateral 오차를 작은 목표 yaw로 변환한다.
+                    # lateral이 줄어들수록 target_yaw도 0으로 수렴하고,
+                    # yaw PD가 차체를 다시 도크 축과 평행하게 만들어
+                    # 후진 궤적이 자연스럽게 S자 형태가 되도록 한다.
+                    lateral_gain = self.p['reverse_lateral_gain']
 
-                    lateral_correction = (
+                    target_yaw = (
                         lateral_gain
                         * self.filt_lateral_error
                     )
 
-                    # 너무 큰 보정각 방지
-                    max_correction = math.radians(5.0)
+                    max_target_yaw = math.radians(
+                        self.p['reverse_max_target_yaw_deg']
+                    )
 
-                    lateral_correction = float(
+                    target_yaw = float(
                         np.clip(
-                            lateral_correction,
-                            -max_correction,
-                            max_correction
+                            target_yaw,
+                            -max_target_yaw,
+                            max_target_yaw
                         )
                     )
 
-                    # --------------------------------
-                    # yaw + lateral 통합 오차
-                    # --------------------------------
-                    combined_error = normalize_angle(
+                    yaw_control_error = normalize_angle(
                         self.filt_rel_yaw
-                        + lateral_correction
+                        + target_yaw
                     )
 
                     # --------------------------------
@@ -826,7 +856,7 @@ class PrecisionDockingServer(Node):
                     w = (
                         steering_scale
                         * self.angular_pid.update(
-                            combined_error,
+                            yaw_control_error,
                             dt
                         )
                     )
@@ -835,9 +865,12 @@ class PrecisionDockingServer(Node):
                         v,
                         w
                     )
+                else:
+                    self.get_logger().info("도킹 상태 오류: 알 수 없는 상태")
+
 
         return state, valid_time
-        
+
 def main(args=None):
     rp.init(args=args)
     node = PrecisionDockingServer()
