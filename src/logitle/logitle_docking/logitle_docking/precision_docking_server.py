@@ -68,7 +68,7 @@ def icp_2d(source_pts, target_tree, target_pts, initial_transform=None, max_iter
             break
         prev_error = current_error
 
-    fitness = float(np.sum(distances < 0.08) / max(len(target_pts), 1)) if len(distances) > 0 else 0.0
+    fitness = float(np.mean(distances < 0.08)) if len(distances) > 0 else 0.0
     return T, fitness, matched_count
 
 
@@ -145,12 +145,18 @@ class PrecisionDockingServer(Node):
         self.latest_source_pts = self.target_tree = None
         self.new_scan_available = False
         self.current_transform = np.identity(3, dtype=np.float32)
-        self.filt_rel_yaw = self.filt_dock_dist = self.prev_yaw = self.prev_dist = None
+        self.filt_rel_yaw = None
+        self.filt_dock_dist = None
+        self.filt_lateral_error = None
+
+        self.prev_yaw = None
+        self.prev_dist = None
+        self.prev_lateral = None
         self.last_fitness, self.icp_fail_count, self.settle_timer = 0.0, 0, 0.0
         self.target_dist = self.p['robot_rear_length']
         self.target_dock_yaw = 0.0
 
-    def generate_v_funnel(self, gap=0.0):
+    def generate_v_funnel(self):
         pts = []
         half_w = self.p['charger_width'] / 2.0
         
@@ -175,6 +181,7 @@ class PrecisionDockingServer(Node):
             self.latest_source_pts, self.new_scan_available = np.column_stack((xs[roi], ys[roi])).astype(np.float32), True
         else:
             self.latest_source_pts = None
+            self.new_scan_available = False
 
     def get_odom_pose(self):
         try:
@@ -217,13 +224,17 @@ class PrecisionDockingServer(Node):
 
                 # Phase 1: ICP 스냅샷 후 목표 좌표/각도 확정
                 if state == DockingState.INIT:
-                    if not self.new_scan_available or odom_x is None:
-                        rate.sleep()
-                        continue
+                    if (
+                            not self.new_scan_available
+                            or self.latest_source_pts is None
+                            or odom_x is None
+                        ):
+                            rate.sleep()
+                            continue
 
                     req_x = goal_handle.request.target_pose.pose.position.x
                     self.target_dist = req_x if req_x > 0 else self.p['robot_rear_length']
-                    active_target_pts = self.generate_v_funnel(self.target_dist)
+                    active_target_pts = self.generate_v_funnel()
                     self.target_tree = cKDTree(active_target_pts)
                     self.new_scan_available = False
 
@@ -311,7 +322,7 @@ class PrecisionDockingServer(Node):
                 self.publish_vel(0.0, 0.0)
                 self.new_scan_available = False
                 self.current_transform = np.identity(3, dtype=np.float32)
-                self.filt_dock_dist = self.filt_rel_yaw = self.prev_dist = self.prev_yaw = None
+                self.filt_dock_dist = self.filt_rel_yaw = self.filt_lateral_error = self.prev_dist = self.prev_yaw = self.prev_lateral = None
                 self.settle_timer = 0.5
                 return DockingState.ICP_SETTLE
             w = self.staging_angular_pid.update(err, dt)
@@ -349,27 +360,150 @@ class PrecisionDockingServer(Node):
                 T, fitness, match_cnt = icp_2d(self.latest_source_pts, self.target_tree, active_pts, self.current_transform, max_iter, s_rad)
 
                 if match_cnt >= 10:
-                    valid_time, self.icp_fail_count, self.current_transform = curr_time, 0, T
                     R, t = T[:2, :2], T[:2, 2]
-                    
-                    raw_dist = float(t[0])
-                    raw_yaw = normalize_angle(math.atan2(R[0, 1], R[0, 0]))
 
-                    if self.prev_dist is None or (abs(raw_dist - self.prev_dist) <= 0.1 and abs(normalize_angle(raw_yaw - self.prev_yaw)) <= math.radians(10.0)):
-                        alpha = 0.6 if fitness > 0.6 else (0.4 if fitness > 0.3 else 0.2)
-                        self.filt_rel_yaw = raw_yaw if self.filt_rel_yaw is None else (alpha * raw_yaw) + ((1 - alpha) * self.filt_rel_yaw)
-                        self.filt_dock_dist = raw_dist if self.filt_dock_dist is None else (alpha * raw_dist) + ((1 - alpha) * self.filt_dock_dist)
-                        self.prev_dist, self.prev_yaw, self.last_fitness = self.filt_dock_dist, self.filt_rel_yaw, fitness
+                    raw_dist = float(t[0])
+                    raw_lateral = float(t[1])
+
+                    raw_yaw = normalize_angle(
+                        math.atan2(R[0, 1], R[0, 0])
+                    )
+
+                    # -----------------------------
+                    # ICP 이상값 검사
+                    # -----------------------------
+                    if self.prev_dist is None:
+                        icp_valid = True
+
+                    else:
+                        dist_jump = abs(
+                            raw_dist - self.prev_dist
+                        )
+
+                        lateral_jump = abs(
+                            raw_lateral - self.prev_lateral
+                        )
+
+                        yaw_jump = abs(
+                            normalize_angle(
+                                raw_yaw - self.prev_yaw
+                            )
+                        )
+
+                        icp_valid = (
+                            dist_jump <= 0.10
+                            and lateral_jump <= 0.05
+                            and yaw_jump <= math.radians(10.0)
+                        )
+
+                    # -----------------------------
+                    # 정상 ICP
+                    # -----------------------------
+                    if icp_valid:
+                        valid_time = curr_time
+                        self.icp_fail_count = 0
+                        self.current_transform = T
+
+                        alpha = (
+                            0.6 if fitness > 0.6
+                            else 0.4 if fitness > 0.3
+                            else 0.2
+                        )
+
+                        # Yaw 필터
+                        if self.filt_rel_yaw is None:
+                            self.filt_rel_yaw = raw_yaw
+                        else:
+                            yaw_delta = normalize_angle(
+                                raw_yaw - self.filt_rel_yaw
+                            )
+
+                            self.filt_rel_yaw = normalize_angle(
+                                self.filt_rel_yaw
+                                + alpha * yaw_delta
+                            )
+
+                        # 거리 필터
+                        if self.filt_dock_dist is None:
+                            self.filt_dock_dist = raw_dist
+                        else:
+                            self.filt_dock_dist = (
+                                alpha * raw_dist
+                                + (1.0 - alpha)
+                                * self.filt_dock_dist
+                            )
+
+                        # 좌우 오차 필터
+                        if self.filt_lateral_error is None:
+                            self.filt_lateral_error = raw_lateral
+                        else:
+                            self.filt_lateral_error = (
+                                alpha * raw_lateral
+                                + (1.0 - alpha)
+                                * self.filt_lateral_error
+                            )
+
+                        self.prev_dist = self.filt_dock_dist
+                        self.prev_yaw = self.filt_rel_yaw
+                        self.prev_lateral = self.filt_lateral_error
+
+                        self.last_fitness = fitness
+
+                    # -----------------------------
+                    # match는 됐지만 ICP가 갑자기 튐
+                    # -----------------------------
+                    else:
+                        self.icp_fail_count += 1
+
+                        self.get_logger().warn(
+                            f'ICP 이상값 거부: '
+                            f'dist={raw_dist:.3f}, '
+                            f'lateral={raw_lateral:.3f}, '
+                            f'yaw={math.degrees(raw_yaw):.1f}°'
+                        )
+
+                        if self.icp_fail_count > 3:
+                            self.current_transform = np.identity(3,dtype=np.float32)
+
+                            # 다음 ICP를 새 기준으로 재획득
+                            self.prev_dist = None
+                            self.prev_yaw = None
+                            self.prev_lateral = None
+
+                            self.filt_dock_dist = None
+                            self.filt_rel_yaw = None
+                            self.filt_lateral_error = None
+
+                            self.publish_vel(0.0, 0.0)
+
+                            return DockingState.ALIGN_HEADING, valid_time
+
+                # ---------------------------------
+                # matching 자체가 제대로 안 됨
+                # ---------------------------------
                 else:
                     self.icp_fail_count += 1
-                    if self.icp_fail_count > 3:
-                        self.current_transform = np.identity(3, dtype=np.float32)
 
+                    if self.icp_fail_count > 3:
+                        self.current_transform = np.identity(3,dtype=np.float32)
+
+                        # 다음 ICP를 새 기준으로 재획득
+                        self.prev_dist = None
+                        self.prev_yaw = None
+                        self.prev_lateral = None
+
+                        self.filt_dock_dist = None
+                        self.filt_rel_yaw = None
+                        self.filt_lateral_error = None
+
+                        self.publish_vel(0.0, 0.0)
+
+                        return DockingState.ALIGN_HEADING, valid_time
             if (curr_time - valid_time).nanoseconds / 1e9 > 1.0:
                 self.publish_vel(0, 0)
                 return state, valid_time
 
-            if self.filt_rel_yaw is not None and self.filt_dock_dist is not None:
+            if (self.filt_rel_yaw is not None and self.filt_dock_dist is not None and self.filt_lateral_error is not None):
                 if state == DockingState.ALIGN_HEADING:
                     # 회전 헌팅 방지를 위해 1.5도로 여유를 부여하여 후진 진입 유도
                     if abs(self.filt_rel_yaw) < math.radians(1.5):
@@ -381,17 +515,119 @@ class PrecisionDockingServer(Node):
                     self.publish_vel(0, self.angular_pid.update(self.filt_rel_yaw, dt))
 
                 elif state == DockingState.STRAIGHT_REVERSE:
-                    dist_error = max(0.0, self.filt_dock_dist - self.target_dist)
+                    dist_error = max(
+                        0.0,
+                        self.filt_dock_dist
+                        - self.target_dist
+                    )
 
+                    # --------------------------------
+                    # 목표 도킹 거리 도달
+                    # --------------------------------
                     if dist_error <= 0.015:
-                        self.publish_vel(0.0, 0.0)
-                        self.get_logger().info(f'도크 접점 도달 완료 (남은오차: {dist_error:.3f}m). 최종 정렬로 이동.')
-                        return DockingState.ALIGN_YAW, valid_time
+                        self.publish_vel(
+                            0.0,
+                            0.0
+                        )
 
-                    v_mag = self.linear_pid.update(dist_error, dt)
+                        self.get_logger().info(
+                            f'도크 접점 도달 완료 '
+                            f'(남은오차: {dist_error:.3f}m). '
+                            f'최종 정렬로 이동.'
+                        )
+
+                        return (
+                            DockingState.ALIGN_YAW,
+                            valid_time
+                        )
+
+                    # --------------------------------
+                    # 후진 속도
+                    # --------------------------------
+                    v_mag = self.linear_pid.update(
+                        dist_error,
+                        dt
+                    )
+
                     v = -v_mag
-                    w = 0.0 if self.filt_dock_dist < self.p['steering_lock_dist'] else self.angular_pid.update(self.filt_rel_yaw, dt)
-                    self.publish_vel(v, w)
+
+                    # --------------------------------
+                    # 도크 중심선 lateral 보정
+                    # --------------------------------
+                    lateral_gain = 1.5
+
+                    lateral_correction = (
+                        lateral_gain
+                        * self.filt_lateral_error
+                    )
+
+                    # 너무 큰 보정각 방지
+                    max_correction = math.radians(5.0)
+
+                    lateral_correction = float(
+                        np.clip(
+                            lateral_correction,
+                            -max_correction,
+                            max_correction
+                        )
+                    )
+
+                    # --------------------------------
+                    # yaw + lateral 통합 오차
+                    # --------------------------------
+                    combined_error = normalize_angle(
+                        self.filt_rel_yaw
+                        + lateral_correction
+                    )
+
+                    # --------------------------------
+                    # 도크가 가까워질수록
+                    # steering을 서서히 감소
+                    # --------------------------------
+                    steering_start_dist = self.p[
+                        'steering_lock_dist'
+                    ]
+
+                    steering_stop_dist = (
+                        self.target_dist + 0.015
+                    )
+
+                    if (
+                        self.filt_dock_dist
+                        >= steering_start_dist
+                    ):
+                        steering_scale = 1.0
+
+                    elif (
+                        self.filt_dock_dist
+                        <= steering_stop_dist
+                    ):
+                        steering_scale = 0.0
+
+                    else:
+                        steering_scale = (
+                            self.filt_dock_dist
+                            - steering_stop_dist
+                        ) / (
+                            steering_start_dist
+                            - steering_stop_dist
+                        )
+
+                    # --------------------------------
+                    # 최종 각속도
+                    # --------------------------------
+                    w = (
+                        steering_scale
+                        * self.angular_pid.update(
+                            combined_error,
+                            dt
+                        )
+                    )
+
+                    self.publish_vel(
+                        v,
+                        w
+                    )
 
         return state, valid_time
 
