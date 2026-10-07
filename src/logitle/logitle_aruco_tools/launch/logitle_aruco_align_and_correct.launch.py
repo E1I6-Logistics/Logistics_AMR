@@ -36,7 +36,9 @@ HEADING_TRIMS_BY_HOST = {
 # Wall alignment lateral trims per robot hostname: the lateral [m, robot's
 # right +] the robot reads while it sits on the node's floor mark, measured
 # from both wheel edges. pair_lateral_trims:= still wins.
-LATERAL_TRIMS_BY_HOST = {}
+LATERAL_TRIMS_BY_HOST = {
+    "turtlebot1": "N3:0.031",
+}
 
 
 def default_robot_namespace():
