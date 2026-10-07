@@ -259,6 +259,25 @@ ros2 action send_goal /aruco_align_and_correct logitle_aruco_msgs/action/AlignAn
 --feedback
 ```
 
+### N5/N6 벽 정렬 (라이다 + 마커 방향각)
+
+N5(ID24/ID29), N6(ID25/ID28) 마커로 goal을 보내고 `target_x`, `target_z`를 생략하면
+x/z preset 정렬 대신 벽 정렬을 사용합니다. 마커 하나의 x/z만 맞추면 로봇이 조금 회전하면서
+옆으로 밀린 위치에서도 같은 x/z가 나와 중앙이 벗어날 수 있기 때문입니다.
+
+- 방향, 벽까지 거리: `/scan`에서 로봇 앞 벽을 직선으로 피팅합니다.
+- 좌우: 마커의 방향각(화면 좌우 위치)과 라이다 벽 직선으로 계산합니다. 두 마커가 보이면 두 마커
+  사이를 보간하고, 하나만 보이면 그 마커로 계산합니다. 마커 tvec의 거리값은 거리에 따라 오차가
+  커져서 사용하지 않습니다.
+- 동작: 정지 후 측정하고, 한 번에 하나만 움직입니다. 방향 정렬(최대 8°), 중심 보정(8° 회전,
+  3cm 이내 직진, 원래 방향으로 회전), 거리 보정(3cm 이내) 중 하나를 수행합니다. 오차가 방향 1°,
+  좌우 1cm, 거리 1cm 안에 두 번 연속 들어오면 완료합니다.
+- 목표는 바닥 노드 표시 실측값입니다(2026-10-07). N5는 ID24 중심에서 오른쪽 18.0cm, 벽까지
+  40.0cm이고, N6은 ID25 중심에서 오른쪽 17.5cm, 벽까지 41.0cm입니다.
+- 정렬 후 pose corrector 대신 같은 측정값으로 `/initialpose`를 직접 발행합니다.
+- 끄려면 align 서버에 `--wall-align false`를 줍니다. 한 번에 움직이는 한도는
+  `--pair-max-turn-deg`, `--pair-max-drive`로 조절합니다.
+
 ## Pose Correction Action
 
 관제 연동은 `/aruco_correct_pose` action을 사용합니다. 이 Action은 도킹이나 이동 제어를 하지 않고, ArUco 관측으로 현재 `map -> base_footprint` pose를 계산합니다.
