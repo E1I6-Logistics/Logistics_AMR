@@ -149,7 +149,7 @@ def fit_wall_line(scan, args):
     Returns (k, b) or None when there are too few points or the fit is poor.
     """
     ranges = np.asarray(scan.ranges, dtype=float)
-    angles = scan.angle_min + np.arange(len(ranges)) * scan.angle_increment
+    angles = scan.angle_min + np.arange(len(ranges)) * scan.angle_increment + math.radians(args.scan_yaw)
     valid = np.isfinite(ranges) & (ranges > scan.range_min)
     x = ranges * np.cos(angles) + args.scan_x
     y = ranges * np.sin(angles)
@@ -1760,7 +1760,7 @@ def parse_args():
 
     # Wall alignment (WALL_PAIR_TARGETS nodes, preset targets only).
     parser.add_argument("--wall-align", type=bool_arg, default=True)
-    parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=1.0)
+    parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=0.3)
     parser.add_argument("--pair-lateral-tolerance", type=float, default=0.003)
     parser.add_argument("--pair-distance-tolerance", type=float, default=0.005)
     # Bounds for one move: turn angle and drive distance.
@@ -1784,6 +1784,8 @@ def parse_args():
     parser.add_argument("--scan-topic", default="/scan")
     # base_scan position in base_footprint (turtlebot3 burger URDF).
     parser.add_argument("--scan-x", type=float, default=-0.032)
+    # Lidar mount yaw [deg, left positive]; turns the scan into base_footprint.
+    parser.add_argument("--scan-yaw", type=float, default=0.0)
     parser.add_argument("--wall-fit-min-x", type=float, default=0.25)
     parser.add_argument("--wall-fit-max-x", type=float, default=0.60)
     parser.add_argument("--wall-fit-half-width", type=float, default=0.35)
