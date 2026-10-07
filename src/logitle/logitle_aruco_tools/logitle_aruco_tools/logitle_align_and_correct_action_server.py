@@ -143,6 +143,16 @@ WALL_PAIR_TARGETS = {
     # A node may also use a single marker: set right_marker to None and
     # center_offset to the node position along the wall from that marker
     # center (robot's right +).
+    # N3: the x/z preset alignment could not hold heading (marker plane yaw
+    # scatters 2-4 deg) and each degree moved the robot about 1 cm sideways.
+    # Tape (2026-10-07): floor mark 1.5 cm right of ID27, 41 cm from the wall;
+    # the robot stops 1.5 cm further back than the mark on request.
+    "N3": {
+        "left_marker": 27,
+        "right_marker": None,
+        "center_offset": 0.015,
+        "wall_distance": 0.425,
+    },
 }
 
 
