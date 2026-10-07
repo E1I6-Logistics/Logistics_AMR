@@ -284,11 +284,14 @@ x/z preset 정렬 대신 벽 정렬을 사용합니다. 마커 하나의 x/z만 
 
 - 방향, 벽까지 거리: `/scan`에서 로봇 앞 벽을 직선으로 피팅합니다.
 - 좌우: 마커의 방향각(화면 좌우 위치)과 라이다 벽 직선으로 계산합니다. 두 마커가 보이면 두 마커
-  사이를 보간하고, 하나만 보이면 그 마커로 계산합니다. 마커 tvec의 거리값은 거리에 따라 오차가
+  사이를 보간하고, 하나만 보이면 그 마커로 계산합니다(두 마커가 보였을 때의 차이만큼 보정).
+  벽 직선은 RANSAC으로 피팅해 로봇팔, 다리 같은 앞 물체를 제외합니다. 마커 tvec의 거리값은 거리에 따라 오차가
   커져서 사용하지 않습니다.
-- 동작: 정지 후 측정하고, 한 번에 하나만 움직입니다. 방향 정렬(최대 8°), 중심 보정(8° 회전,
-  3cm 이내 직진, 원래 방향으로 회전), 거리 보정(3cm 이내) 중 하나를 수행합니다. 오차가 방향 1°,
-  좌우 1cm, 거리 1cm 안에 두 번 연속 들어오면 완료합니다.
+- 동작: 정지 후 측정하고, 한 번에 하나만 움직입니다. 방향 정렬(최대 8°), 중심 보정(회전,
+  직진, 원래 방향으로 회전), 거리 보정(3cm 이내) 중 하나를 수행합니다. 중심 보정은 좌우 2cm 초과나
+  먼 거리에서 20°/6cm, 그 외 8°/3cm 한도로 목표 지점을 향해 움직이고, 목표 거리를 2cm 넘게
+  지나칠 때는 후진합니다. 오차가 방향 1°, 좌우 3mm, 거리 5mm 안에 세 번 연속 들어오면 완료합니다.
+- 회전/직진은 odom 속도로 D 제어하고, odom 지연(0.1s)을 감안해 미리 멈춥니다.
 - 목표는 바닥 노드 표시 실측값입니다(2026-10-07). N5는 ID24 중심에서 오른쪽 18.0cm, 벽까지
   40.0cm이고, N6은 ID25 중심에서 오른쪽 17.5cm, 벽까지 41.0cm입니다.
 - 정렬 후 pose corrector 대신 같은 측정값으로 `/initialpose`를 직접 발행합니다.
@@ -304,12 +307,20 @@ x/z preset 정렬 대신 벽 정렬을 사용합니다. 마커 하나의 x/z만 
 | `--wall-align` | true | N5/N6 벽 정렬 사용 (false면 x/z preset 정렬) |
 | `--wall-initialpose` | true | 벽 정렬 측정값으로 `/initialpose` 발행 (pose corrector 미사용) |
 | `--pair-yaw-tolerance-deg` | 1.0 | 방향 허용 오차 |
-| `--pair-lateral-tolerance` | 0.010 | 좌우 허용 오차 [m] |
-| `--pair-distance-tolerance` | 0.010 | 거리 허용 오차 [m] |
-| `--pair-max-turn-deg` | 8.0 | 한 번 회전 한도 |
-| `--pair-max-drive` | 0.03 | 한 번 직진 한도 [m] |
+| `--pair-lateral-tolerance` | 0.003 | 좌우 허용 오차 [m] |
+| `--pair-distance-tolerance` | 0.005 | 거리 허용 오차 [m] |
+| `--pair-stable-count` | 3 | 완료에 필요한 연속 허용 범위 측정 횟수 |
+| `--pair-max-turn-deg` | 8.0 | 한 번 회전 한도 (미세) |
+| `--pair-max-drive` | 0.03 | 한 번 직진 한도 [m] (미세) |
+| `--pair-coarse-lateral` | 0.02 | 이보다 좌우 오차가 크면 넓은 한도 사용 [m] |
+| `--pair-coarse-max-turn-deg` | 20.0 | 넓은 한도 회전 |
+| `--pair-coarse-max-drive` | 0.06 | 넓은 한도 직진 [m] |
+| `--pair-max-overshoot` | 0.02 | 전진 중심 보정이 목표 거리를 지나칠 수 있는 한도 [m] |
 | `--pair-max-centering` | 10 | 중심 보정 최대 횟수 |
-| `--pair-timeout-sec` | 60 | 벽 정렬 제한 시간 |
+| `--pair-timeout-sec` | 90 | 벽 정렬 제한 시간 |
+| `--maneuver-distance-tolerance` | 0.001 | odom 직진 정지 허용 오차 [m] |
+| `--maneuver-kd-yaw`, `--maneuver-kd-dist` | 0.5 | 회전/직진 D 게인 |
+| `--maneuver-lead-sec` | 0.1 | odom 지연 보상 시간 [s] |
 
 목표값을 다시 잴 때는 로봇 없이 바닥 노드 표시만 기준으로 두 값을 잽니다.
 `WALL_PAIR_TARGETS`(`logitle_align_and_correct_action_server.py`)의 `center_offset`, `wall_distance`에 넣습니다.
@@ -318,6 +329,14 @@ x/z preset 정렬 대신 벽 정렬을 사용합니다. 마커 하나의 x/z만 
 - `wall_distance`: 노드 표시에서 벽까지 수직 거리
 - 정렬 후 확인: 왼쪽 바퀴 중앙은 로봇 중심에서 왼쪽 8.0cm이므로, 왼쪽 마커 중심에서
   왼쪽 바퀴 중앙까지 가로 거리가 `center_offset - 8.0cm`이면 정상입니다.
+
+로봇마다 카메라가 조금 돌아가 붙어 있으면 모든 노드에서 같은 방향으로 좌우가 치우칩니다.
+공용 `center_offset`은 바꾸지 말고 그 로봇 실행 인자에 `camera_yaw`(왼쪽으로 돌린 각도가 +, deg)를
+줍니다. 같은 자리에서 측정 좌우 값이 1°당 약 0.77cm 바뀝니다(N6 기준).
+
+- robot3: `camera_yaw:=2.1` (2026-10-07, N6에서 바닥 표시에 맞춤). 예:
+  `ros2 launch logitle_bringup logitle_robot.launch.py ... camera_yaw:=2.1`
+- robot1: 0 (보정 없이 N6 중앙 정렬 확인)
 
 N5는 노드 표시 중앙에서 ID29가 화면 오른쪽 끝에 걸려 ID24 하나로 좌우를 계산합니다. 두 마커가 모두
 보이면 두 마커 사이를 보간하므로 더 정확합니다(방향각 배율 오차 상쇄).
