@@ -11,16 +11,32 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-# Camera yaw [deg, left positive] per robot hostname. An explicit camera_yaw:=
-# launch argument still wins. robot3's 1.5 cm offset at N6 is not a camera yaw:
+# Camera yaw [deg, left positive] per robot hostname (2026-10-07). robot1 was
+# fitted on the N5/N6 floor marks after its camera screw was tightened;
+# robot3's value carries over its earlier N5 fit (scan_yaw -0.7) to the
+# heading trims. An explicit camera_yaw:= launch argument still wins. robot3's 1.5 cm offset at N6 is not a camera yaw:
 # 2.1 deg fixed N6 but moved N5 off its mark by the same amount.
-CAMERA_YAW_BY_HOST = {}
-
-# Lidar yaw [deg, left positive] per robot hostname, fitted from the wheel
-# distances to the wall at N5 (2026-10-07). scan_yaw:= still wins.
-SCAN_YAW_BY_HOST = {
-    "turtlebot3": "-0.7",
+CAMERA_YAW_BY_HOST = {
+    "turtlebot1": "4.6",
+    "turtlebot3": "0.7",
 }
+
+# Lidar yaw [deg, left positive] per robot hostname. scan_yaw:= still wins.
+# Changing it shifts the lateral reading by about 0.7 cm per degree, so refit
+# camera_yaw after it. The heading errors seen at N5 were not a lidar mount
+# yaw (robot1 read N6 correctly), so they live in HEADING_TRIMS_BY_HOST.
+SCAN_YAW_BY_HOST = {}
+# Wall alignment heading trims per robot hostname: the lidar heading [deg]
+# the robot reads at each node while it is square to the wall, from the
+# wheel-to-wall distances (2026-10-07). pair_heading_trims:= still wins.
+HEADING_TRIMS_BY_HOST = {
+    "turtlebot1": "N5:-1.6,N6:-0.2",
+    "turtlebot3": "N5:-0.7",
+}
+# Wall alignment lateral trims per robot hostname: the lateral [m, robot's
+# right +] the robot reads while it sits on the node's floor mark, measured
+# from both wheel edges. pair_lateral_trims:= still wins.
+LATERAL_TRIMS_BY_HOST = {}
 
 
 def default_robot_namespace():
@@ -94,6 +110,12 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_roll", default_value="0.0"),
         DeclareLaunchArgument(
             "scan_yaw", default_value=SCAN_YAW_BY_HOST.get(socket.gethostname(), "0.0")
+        ),
+        DeclareLaunchArgument(
+            "pair_lateral_trims", default_value=LATERAL_TRIMS_BY_HOST.get(socket.gethostname(), "none")
+        ),
+        DeclareLaunchArgument(
+            "pair_heading_trims", default_value=HEADING_TRIMS_BY_HOST.get(socket.gethostname(), "none")
         ),
         DeclareLaunchArgument("pose_source", default_value="camera"),
         DeclareLaunchArgument("approx_camera_info", default_value="false"),
@@ -234,6 +256,10 @@ def generate_launch_description():
                 LaunchConfiguration("camera_roll"),
                 "--scan-yaw",
                 LaunchConfiguration("scan_yaw"),
+                "--pair-lateral-trims",
+                LaunchConfiguration("pair_lateral_trims"),
+                "--pair-heading-trims",
+                LaunchConfiguration("pair_heading_trims"),
                 "--map-frame",
                 LaunchConfiguration("map_frame"),
                 "--initialpose-topic",
