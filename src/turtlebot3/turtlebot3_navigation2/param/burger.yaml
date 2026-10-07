@@ -134,9 +134,17 @@ controller_server:
       # use_interpolation: true
       # ==========================================
 
-      lookahead_dist: 0.3
+      lookahead_dist: 0.15      ## 0.3
       use_velocity_scaled_lookahead_dist: false
+      # min_lookahead_dist: 0.15
+      # max_lookahead_dist: 0.30
+      # lookahead_time: 1.0 
+      
       use_regulated_linear_velocity_scaling: false
+      # regulated_linear_scaling_min_radius: 0.9       # 이 반경보다 급한 회전에서 감속
+      # regulated_linear_scaling_min_speed: 0.12       # 급커브에서도 여기 아래로는 감속하지 않음
+
+
       use_cost_regulated_linear_velocity_scaling: false
       # use_approach_linear_velocity_scaling: true   # 목표 지점 접근 시 감속 끄기
 
