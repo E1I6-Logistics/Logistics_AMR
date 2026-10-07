@@ -331,11 +331,12 @@ x/z preset 정렬 대신 벽 정렬을 사용합니다. 마커 하나의 x/z만 
   왼쪽 바퀴 중앙까지 가로 거리가 `center_offset - 8.0cm`이면 정상입니다.
 
 로봇마다 카메라가 조금 돌아가 붙어 있으면 모든 노드에서 같은 방향으로 좌우가 치우칩니다.
-공용 `center_offset`은 바꾸지 말고 그 로봇 실행 인자에 `camera_yaw`(왼쪽으로 돌린 각도가 +, deg)를
-줍니다. 같은 자리에서 측정 좌우 값이 1°당 약 0.77cm 바뀝니다(N6 기준).
+공용 `center_offset`은 바꾸지 말고 그 로봇의 `camera_yaw`(왼쪽으로 돌린 각도가 +, deg)를
+`logitle_aruco_align_and_correct.launch.py`의 `CAMERA_YAW_BY_HOST`에 hostname으로 넣습니다.
+실행할 때 따로 줄 필요가 없고, `camera_yaw:=`를 주면 그 값이 우선합니다. 같은 자리에서 측정
+좌우 값이 1°당 약 0.77cm 바뀝니다(N6 기준).
 
-- robot3: `camera_yaw:=2.1` (2026-10-07, N6에서 바닥 표시에 맞춤). 예:
-  `ros2 launch logitle_bringup logitle_robot.launch.py ... camera_yaw:=2.1`
+- robot3(`turtlebot3`): 2.1 (2026-10-07, N6에서 바닥 표시에 맞춤)
 - robot1: 0 (보정 없이 N6 중앙 정렬 확인)
 
 N5는 노드 표시 중앙에서 ID29가 화면 오른쪽 끝에 걸려 ID24 하나로 좌우를 계산합니다. 두 마커가 모두
