@@ -144,7 +144,7 @@ WALL_PAIR_TARGETS = {
 
 
 def fit_wall_line(scan, args):
-    """Fit the wall in front of the robot as x = k*y + b in base_footprint.
+    """Fit the wall in front of the robot as x = k*y + b in base_footprint (RANSAC).
 
     Returns (k, b) or None when there are too few points or the fit is poor.
     """
@@ -158,10 +158,18 @@ def fit_wall_line(scan, args):
     y = y[mask]
     if len(x) < args.wall_fit_min_points:
         return None
-    # Two passes: the second drops points off the wall (robot arm, cables).
-    k, b = np.polyfit(y, x, 1)
-    inliers = np.abs(x - (k * y + b)) < args.wall_fit_inlier_tolerance
-    if inliers.sum() < args.wall_fit_min_points:
+    # RANSAC over point pairs: objects in front of the wall (the robot arm,
+    # legs) pull a plain least-squares line off the wall.
+    inliers = None
+    for i in range(len(x)):
+        for j in range(i + 1, len(x)):
+            if abs(y[j] - y[i]) < 0.05:
+                continue
+            k = (x[j] - x[i]) / (y[j] - y[i])
+            candidate = np.abs(x - (k * y + x[i] - k * y[i])) < args.wall_fit_inlier_tolerance
+            if inliers is None or candidate.sum() > inliers.sum():
+                inliers = candidate
+    if inliers is None or inliers.sum() < args.wall_fit_min_points:
         return None
     k, b = np.polyfit(y[inliers], x[inliers], 1)
     rms = float(np.sqrt(np.mean((x[inliers] - (k * y[inliers] + b)) ** 2)))
@@ -342,6 +350,8 @@ class AlignAndCorrectActionServer(Node):
         self.latest_odom = None
         self.scan_sub = None
         self.latest_scan = None
+        # Pair minus single-marker lateral, per marker, within one goal.
+        self.wall_single_offsets = {}
         if args.pose_source == "camera":
             dictionary_id = ARUCO_DICTS[args.dictionary]
             self.dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
@@ -781,12 +791,13 @@ class AlignAndCorrectActionServer(Node):
 
         Each step stops, measures (lidar wall line for heading and distance,
         marker bearings for the lateral offset), then makes one bounded move:
-        ALIGN_YAW, CENTER (turn, short drive, turn back) or APPROACH. Two
-        consecutive in-tolerance measurements finish the alignment.
+        ALIGN_YAW, CENTER (turn, short drive, turn back) or APPROACH.
+        pair_stable_count consecutive in-tolerance measurements finish the alignment.
         """
         pair = params["wall_pair"]
         args = self.args
         started = time.time()
+        self.wall_single_offsets = {}
         centering = 0
         stable_hits = 0
         stopped = False
@@ -861,7 +872,9 @@ class AlignAndCorrectActionServer(Node):
                     )
                 centering += 1
                 feedback("center")
-                ok, message = self.center_step(goal_handle, lateral, distance_error, heading)
+                ok, message = self.center_step(
+                    goal_handle, lateral, distance_error, heading, measured["distance"], params["z_min_stop"]
+                )
             elif abs(distance_error) > args.pair_distance_tolerance:
                 stable_hits = 0
                 drive = clamp(distance_error, -args.pair_max_drive, args.pair_max_drive)
@@ -870,7 +883,7 @@ class AlignAndCorrectActionServer(Node):
             else:
                 stable_hits += 1
                 feedback("stable_check")
-                if stable_hits >= 2:
+                if stable_hits >= args.pair_stable_count:
                     self.get_logger().info(
                         f"Wall pair aligned: lateral={lateral * 100.0:+.1f}cm "
                         f"distance_error={distance_error * 100.0:+.1f}cm "
@@ -886,21 +899,56 @@ class AlignAndCorrectActionServer(Node):
 
         return result(False, False, "ROS shutdown during alignment.")
 
-    def center_step(self, goal_handle, lateral, distance_error, heading):
-        """Shift sideways: turn by a bounded angle, drive a short way, turn back.
+    def center_step(self, goal_handle, lateral, distance_error, heading, distance, z_min_stop):
+        """Shift sideways: turn toward the center line, drive, turn back.
 
-        Drives forward when the robot is too far from the wall and backward
-        otherwise, so the distance stays near the target while centering.
+        When the robot is too far from the wall, the drive also covers the
+        remaining distance: the path aims at the target point, or as close to
+        it as the turn limit allows. Otherwise it backs out toward the center
+        line. Large lateral offsets and long approaches use wider limits so Nav2
+        arrival offsets of several centimeters need only a few steps.
         """
         args = self.args
-        turn = math.radians(args.pair_max_turn_deg)
-        drive = min(args.pair_max_drive, abs(lateral) / math.sin(turn))
-        direction = 1.0 if distance_error > 0.0 else -1.0
+        # The drive has to cover a distance gap longer than one fine step
+        # anyway, so it may as well take the wider limits and aim at the target.
+        if abs(lateral) > args.pair_coarse_lateral or distance_error > args.pair_max_drive:
+            max_turn = math.radians(args.pair_coarse_max_turn_deg)
+            max_drive = args.pair_coarse_max_drive
+        else:
+            max_turn = math.radians(args.pair_max_turn_deg)
+            max_drive = args.pair_max_drive
+
+        forward = None
+        if distance_error > 0.0:
+            needed_turn = math.atan2(abs(lateral), distance_error)
+            turn = min(max_turn, needed_turn)
+            if needed_turn <= max_turn:
+                drive = math.hypot(lateral, distance_error)
+            else:
+                drive = abs(lateral) / math.sin(turn)
+            # Keep the camera at least z_min_stop (plus margin) from the wall.
+            room = distance - args.camera_x - z_min_stop - args.pair_wall_margin
+            drive = min(drive, max_drive, max(0.0, room) / math.cos(turn))
+            # Passing the target distance pushes the markers toward the image
+            # edges and needs a step back anyway; back out instead.
+            if drive * math.cos(turn) - distance_error <= args.pair_max_overshoot:
+                forward = (turn, drive)
+        if forward is not None:
+            direction = 1.0
+            turn, drive = forward
+        else:
+            direction = -1.0
+            turn = max_turn
+            drive = min(max_drive, abs(lateral) / math.sin(turn))
+        if drive < args.maneuver_distance_tolerance:
+            return False, "Wall center step has no room to move; check the start position."
+
         # lateral > 0: robot is right of center, so it must move left.
         path_heading = math.copysign(turn, lateral) * direction
         self.get_logger().info(
-            f"Wall center step: lateral={lateral * 100.0:+.1f}cm "
-            f"turn={math.degrees(path_heading - heading):+.1f}deg drive={direction * drive * 100.0:+.1f}cm"
+            f"Wall center step: lateral={lateral * 100.0:+.1f}cm distance_error={distance_error * 100.0:+.1f}cm "
+            f"turn={math.degrees(path_heading - heading):+.1f}deg drive={direction * drive * 100.0:+.1f}cm "
+            f"(expected lateral -{drive * math.sin(turn) * 100.0:.1f}cm)"
         )
         for kind, amount in (
             ("turn", path_heading - heading),
@@ -930,19 +978,19 @@ class AlignAndCorrectActionServer(Node):
             if odom is None or time.time() - odom["received_at"] > args.odom_timeout:
                 return False, "Odometry stopped during the wall maneuver."
             error = wrap_angle(target - odom["yaw"])
-            if abs(error) <= tolerance:
+            # Odometry lags the motion; stop on the error expected after the lag.
+            if abs(error) <= tolerance or abs(error - args.maneuver_lead_sec * odom["angular"]) <= tolerance:
                 break
             if time.time() - started > args.maneuver_timeout_sec:
                 return False, "Wall maneuver turn timed out."
-            self.publish_cmd(
-                0.0,
-                clamp_min_magnitude(
-                    args.maneuver_kyaw * error,
-                    args.maneuver_min_angular,
-                    -args.maneuver_angular,
-                    args.maneuver_angular,
-                ),
+            command = clamp(
+                args.maneuver_kyaw * error - args.maneuver_kd_yaw * odom["angular"],
+                -args.maneuver_angular,
+                args.maneuver_angular,
             )
+            if abs(command) < args.maneuver_min_angular:
+                command = math.copysign(args.maneuver_min_angular, error)
+            self.publish_cmd(0.0, command)
             time.sleep(args.maneuver_period)
         self.stop_robot()
         return True, ""
@@ -962,14 +1010,19 @@ class AlignAndCorrectActionServer(Node):
                 return False, "Odometry stopped during the wall maneuver."
             traveled = (odom["x"] - start["x"]) * heading[0] + (odom["y"] - start["y"]) * heading[1]
             error = distance - traveled
-            if abs(error) <= args.maneuver_distance_tolerance:
+            tolerance = args.maneuver_distance_tolerance
+            # Odometry lags the motion; stop on the error expected after the lag.
+            if abs(error) <= tolerance or abs(error - args.maneuver_lead_sec * odom["linear"]) <= tolerance:
                 break
             if time.time() - started > args.maneuver_timeout_sec:
                 return False, "Wall maneuver drive timed out."
-            linear_x = math.copysign(
-                clamp(abs(args.maneuver_kdist * error), args.maneuver_min_linear, args.maneuver_linear),
-                error,
+            linear_x = clamp(
+                args.maneuver_kdist * error - args.maneuver_kd_dist * odom["linear"],
+                -args.maneuver_linear,
+                args.maneuver_linear,
             )
+            if abs(linear_x) < args.maneuver_min_linear:
+                linear_x = math.copysign(args.maneuver_min_linear, error)
             # Hold the start heading while driving straight.
             angular_z = clamp(
                 args.maneuver_kyaw * wrap_angle(start["yaw"] - odom["yaw"]),
@@ -1039,6 +1092,11 @@ class AlignAndCorrectActionServer(Node):
             return None, "no_marker"
         left_id = pair["left_marker"]
         right_id = pair["right_marker"]
+        single_along = {}
+        if left_id in hits:
+            single_along[left_id] = hits[left_id] + pair["center_offset"]
+        if right_id in hits:
+            single_along[right_id] = hits[right_id] - (pair["marker_spacing"] - pair["center_offset"])
         if left_id in hits and right_id in hits:
             # Interpolate between the two hits by the map ratio: this cancels a
             # bearing scale error (the 320x240 calibration reads the pair about
@@ -1046,13 +1104,20 @@ class AlignAndCorrectActionServer(Node):
             fraction = pair["center_offset"] / pair["marker_spacing"]
             center_along = hits[left_id] + (hits[right_id] - hits[left_id]) * fraction
             source = "pair"
-        elif left_id in hits:
-            center_along = hits[left_id] + pair["center_offset"]
-            source = f"ID{left_id} only"
+            # Remember how far each single-marker estimate is off, so a marker
+            # that drops out later (arm, cable) does not make the lateral jump.
+            for marker_id, along in single_along.items():
+                self.wall_single_offsets[marker_id] = center_along - along
         else:
-            center_along = hits[right_id] - (pair["marker_spacing"] - pair["center_offset"])
-            source = f"ID{right_id} only"
+            marker_id = next(iter(single_along))
+            offset = self.wall_single_offsets.get(marker_id)
+            center_along = single_along[marker_id] + (offset or 0.0)
+            source = f"ID{marker_id} only" + (f" (pair offset {offset * 100.0:+.1f}cm)" if offset is not None else "")
         lateral = -center_along
+        self.get_logger().info(
+            f"Wall measure: lateral={lateral * 100.0:+.1f}cm distance={distance:.3f}m "
+            f"heading={math.degrees(heading):+.1f}deg markers={source} scans={len(fits)}"
+        )
         return {
             "heading": heading,
             "distance": distance,
@@ -1076,6 +1141,8 @@ class AlignAndCorrectActionServer(Node):
                 "x": float(msg.pose.pose.position.x),
                 "y": float(msg.pose.pose.position.y),
                 "yaw": yaw,
+                "linear": float(msg.twist.twist.linear.x),
+                "angular": float(msg.twist.twist.angular.z),
             }
 
     def scan_cb(self, msg):
@@ -1694,13 +1761,23 @@ def parse_args():
     # Wall alignment (WALL_PAIR_TARGETS nodes, preset targets only).
     parser.add_argument("--wall-align", type=bool_arg, default=True)
     parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=1.0)
-    parser.add_argument("--pair-lateral-tolerance", type=float, default=0.010)
-    parser.add_argument("--pair-distance-tolerance", type=float, default=0.010)
+    parser.add_argument("--pair-lateral-tolerance", type=float, default=0.003)
+    parser.add_argument("--pair-distance-tolerance", type=float, default=0.005)
     # Bounds for one move: turn angle and drive distance.
     parser.add_argument("--pair-max-turn-deg", type=float, default=8.0)
     parser.add_argument("--pair-max-drive", type=float, default=0.03)
+    # Lateral offsets above pair-coarse-lateral, or approaches longer than
+    # pair-max-drive, use the wider coarse limits.
+    parser.add_argument("--pair-coarse-lateral", type=float, default=0.02)
+    parser.add_argument("--pair-coarse-max-turn-deg", type=float, default=20.0)
+    parser.add_argument("--pair-coarse-max-drive", type=float, default=0.06)
+    parser.add_argument("--pair-wall-margin", type=float, default=0.02)
+    # A forward center step may pass the target distance by at most this much.
+    parser.add_argument("--pair-max-overshoot", type=float, default=0.02)
     parser.add_argument("--pair-max-centering", type=int, default=10)
-    parser.add_argument("--pair-timeout-sec", type=float, default=60.0)
+    # Consecutive in-tolerance measurements needed to finish.
+    parser.add_argument("--pair-stable-count", type=int, default=3)
+    parser.add_argument("--pair-timeout-sec", type=float, default=90.0)
     parser.add_argument("--pair-settle-sec", type=float, default=0.3)
     parser.add_argument("--pair-measure-sec", type=float, default=1.0)
     parser.add_argument("--pair-min-scans", type=int, default=3)
@@ -1725,11 +1802,18 @@ def parse_args():
     parser.add_argument("--maneuver-linear", type=float, default=0.030)
     parser.add_argument("--maneuver-min-linear", type=float, default=0.012)
     parser.add_argument("--maneuver-kdist", type=float, default=1.5)
-    parser.add_argument("--maneuver-distance-tolerance", type=float, default=0.003)
+    parser.add_argument("--maneuver-distance-tolerance", type=float, default=0.001)
     parser.add_argument("--maneuver-angular", type=float, default=0.25)
     parser.add_argument("--maneuver-min-angular", type=float, default=0.05)
     parser.add_argument("--maneuver-kyaw", type=float, default=1.5)
     parser.add_argument("--maneuver-yaw-tolerance-deg", type=float, default=0.4)
+    # D terms on the odometry velocity, and how far ahead the stop check looks
+    # to cover odometry lag. Measured on robot3 (2026-10-07): P only overshot
+    # turns by 0.40 deg and drives by 1.4 mm on average; with these 0.10 deg
+    # and 0.6 mm.
+    parser.add_argument("--maneuver-kd-yaw", type=float, default=0.5)
+    parser.add_argument("--maneuver-kd-dist", type=float, default=0.5)
+    parser.add_argument("--maneuver-lead-sec", type=float, default=0.1)
     parser.add_argument("--maneuver-period", type=float, default=0.05)
     parser.add_argument("--maneuver-timeout-sec", type=float, default=10.0)
 
