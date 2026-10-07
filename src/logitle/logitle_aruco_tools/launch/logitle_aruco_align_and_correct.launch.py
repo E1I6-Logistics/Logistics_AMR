@@ -11,10 +11,15 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-# Camera yaw [deg, left positive] per robot hostname, fitted on the N6 floor
-# mark (2026-10-07). An explicit camera_yaw:= launch argument still wins.
-CAMERA_YAW_BY_HOST = {
-    "turtlebot3": "2.1",
+# Camera yaw [deg, left positive] per robot hostname. An explicit camera_yaw:=
+# launch argument still wins. robot3's 1.5 cm offset at N6 is not a camera yaw:
+# 2.1 deg fixed N6 but moved N5 off its mark by the same amount.
+CAMERA_YAW_BY_HOST = {}
+
+# Lidar yaw [deg, left positive] per robot hostname, fitted from the wheel
+# distances to the wall at N5 (2026-10-07). scan_yaw:= still wins.
+SCAN_YAW_BY_HOST = {
+    "turtlebot3": "-0.7",
 }
 
 
@@ -87,6 +92,9 @@ def generate_launch_description():
             "camera_yaw", default_value=CAMERA_YAW_BY_HOST.get(socket.gethostname(), "0.0")
         ),
         DeclareLaunchArgument("camera_roll", default_value="0.0"),
+        DeclareLaunchArgument(
+            "scan_yaw", default_value=SCAN_YAW_BY_HOST.get(socket.gethostname(), "0.0")
+        ),
         DeclareLaunchArgument("pose_source", default_value="camera"),
         DeclareLaunchArgument("approx_camera_info", default_value="false"),
         DeclareLaunchArgument("approx_horizontal_fov_deg", default_value="62.2"),
@@ -224,6 +232,8 @@ def generate_launch_description():
                 LaunchConfiguration("camera_yaw"),
                 "--camera-roll",
                 LaunchConfiguration("camera_roll"),
+                "--scan-yaw",
+                LaunchConfiguration("scan_yaw"),
                 "--map-frame",
                 LaunchConfiguration("map_frame"),
                 "--initialpose-topic",
