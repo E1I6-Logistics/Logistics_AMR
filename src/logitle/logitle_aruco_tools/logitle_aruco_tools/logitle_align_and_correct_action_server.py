@@ -15,15 +15,16 @@ import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
-from geometry_msgs.msg import PoseStamped, Twist, TwistStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist, TwistStamped
+from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.serialization import deserialize_message
 from rclpy.utilities import remove_ros_args
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, Image, LaserScan
 
 from logitle_aruco_msgs.action import AlignAndCorrectWithAruco, CorrectPoseWithAruco
 from logitle_aruco_tools.logitle_aruco_pose_viewer import (
@@ -31,6 +32,7 @@ from logitle_aruco_tools.logitle_aruco_pose_viewer import (
     make_detector_params,
     rotation_matrix_to_quaternion,
 )
+from logitle_aruco_tools.logitle_marker_localization import camera_mount_T
 from logitle_aruco_tools.logitle_marker_map import load_marker_map
 
 
@@ -48,53 +50,150 @@ LEGACY_ACTION_DEFAULT_TARGET_X = -0.173
 LEGACY_ACTION_DEFAULT_TARGET_Z = 0.392
 ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG = -87.0
 ACTION_DEFAULT_YAW_TOLERANCE_DEG = 3.0
+ACTION_DEFAULT_Z_TOLERANCE = 0.007
 
 ALIGN_TARGET_PRESETS = {
     24: {
         "node": "N5",
         "target_x": -0.189,
-        "target_z": 0.389,
+        "target_z": 0.376,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": -87.0,
+        # Two-marker yaw is accurate; alignment fixes only marker x/z, so a
+        # laterally offset start can end several degrees off -87.
+        "yaw_tolerance_deg": 8.0,
     },
     25: {
         "node": "N6",
-        "target_x": -0.167,
-        "target_z": 0.398,
+        "target_x": -0.157,
+        "target_z": 0.384,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": -87.0,
+        # Two-marker yaw is accurate; alignment fixes only marker x/z, so a
+        # laterally offset start can end several degrees off -87.
+        "yaw_tolerance_deg": 8.0,
+    },
+    28: {
+        "node": "N6",
+        "target_x": 0.153,
+        "target_z": 0.361,
+        "z_tolerance": 0.010,
+        "check_yaw": True,
+        "expected_base_yaw_deg": -87.0,
+        # Two-marker yaw is accurate; alignment fixes only marker x/z, so a
+        # laterally offset start can end several degrees off -87.
+        "yaw_tolerance_deg": 8.0,
     },
     26: {
         "node": "N4",
-        "target_x": -0.012,
-        "target_z": 0.381,
+        "target_x": -0.009,
+        "target_z": 0.385,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": 0.0,
     },
     27: {
         "node": "N3",
-        "target_x": -0.020,
-        "target_z": 0.403,
+        "target_x": 0.001,
+        "target_z": 0.397,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": 0.0,
     },
     29: {
         "node": "N5",
         "target_x": 0.185,
-        "target_z": 0.382,
+        "target_z": 0.372,
+        "z_tolerance": 0.010,
         "check_yaw": True,
         "expected_base_yaw_deg": -87.0,
+        # Two-marker yaw is accurate; alignment fixes only marker x/z, so a
+        # laterally offset start can end several degrees off -87.
+        "yaw_tolerance_deg": 8.0,
     },
 }
 
-# Markers mounted on the same node. If the requested marker is temporarily
-# out of view, the visible partner can drive both alignment and correction.
-MARKER_FALLBACK_PAIRS = {
-    24: 29,
-    29: 24,
-    25: 28,
-    28: 25,
+# Wall alignment for nodes with two markers on the same wall (N5/N6).
+# Single-marker x/z alignment leaves one degree of freedom free: the robot can
+# end rotated and shifted sideways while the marker still reads the target x/z.
+# The lidar wall line gives heading and distance; marker bearings give the
+# lateral offset. Per-marker tvec depth is not used: its error grows with
+# distance and turns into heading and lateral errors.
+# Targets are floor-mark measurements (2026-10-07): node mark position along
+# the wall from the left marker center, and mark-to-wall distance. The N5
+# mark is 2 cm off the logitle_route node 5 coordinate, so the route graph is
+# not used here.
+WALL_PAIR_TARGETS = {
+    "N5": {
+        "left_marker": 24,
+        "right_marker": 29,
+        "center_offset": 0.180,
+        "wall_distance": 0.400,
+    },
+    "N6": {
+        "left_marker": 25,
+        "right_marker": 28,
+        "center_offset": 0.175,
+        "wall_distance": 0.410,
+        # Measured center spacing; the marker map has 0.303.
+        "marker_spacing": 0.299,
+    },
 }
+
+
+def fit_wall_line(scan, args):
+    """Fit the wall in front of the robot as x = k*y + b in base_footprint.
+
+    Returns (k, b) or None when there are too few points or the fit is poor.
+    """
+    ranges = np.asarray(scan.ranges, dtype=float)
+    angles = scan.angle_min + np.arange(len(ranges)) * scan.angle_increment
+    valid = np.isfinite(ranges) & (ranges > scan.range_min)
+    x = ranges * np.cos(angles) + args.scan_x
+    y = ranges * np.sin(angles)
+    mask = valid & (x > args.wall_fit_min_x) & (x < args.wall_fit_max_x) & (np.abs(y) < args.wall_fit_half_width)
+    x = x[mask]
+    y = y[mask]
+    if len(x) < args.wall_fit_min_points:
+        return None
+    # Two passes: the second drops points off the wall (robot arm, cables).
+    k, b = np.polyfit(y, x, 1)
+    inliers = np.abs(x - (k * y + b)) < args.wall_fit_inlier_tolerance
+    if inliers.sum() < args.wall_fit_min_points:
+        return None
+    k, b = np.polyfit(y[inliers], x[inliers], 1)
+    rms = float(np.sqrt(np.mean((x[inliers] - (k * y[inliers] + b)) ** 2)))
+    if rms > args.wall_fit_max_rms:
+        return None
+    return float(k), float(b)
+
+
+def ray_wall_along(origin_xy, direction_xy, k, b):
+    """Where a horizontal camera ray hits the wall x = k*y + b.
+
+    Returns the hit position along the wall, measured from the foot of the
+    base_footprint origin, positive toward the robot's right. The wall is
+    vertical, so the horizontal part of the ray hits it at the marker.
+    """
+    ox, oy = origin_xy
+    dx, dy = direction_xy
+    denominator = dx - k * dy
+    if abs(denominator) < 1e-6:
+        return None
+    t = (b + k * oy - ox) / denominator
+    if t <= 0.0:
+        return None
+    hit = np.array([ox + t * dx, oy + t * dy])
+    foot_y = -k * b / (k * k + 1.0)
+    foot = np.array([k * foot_y + b, foot_y])
+    right = -np.array([k, 1.0]) / math.sqrt(k * k + 1.0)
+    return float(np.dot(hit - foot, right))
+
+
+def wrap_angle(angle):
+    return math.atan2(math.sin(angle), math.cos(angle))
 
 
 def clamp(value, low, high):
@@ -217,8 +316,6 @@ class AlignAndCorrectActionServer(Node):
         self.image_sub = None
         self.pose_input_lock = threading.Lock()
         self.active_marker_id = None
-        self.requested_marker_id = None
-        self.selected_marker_id = None
         self.camera_process_lock = threading.Lock()
         self.camera_process = None
         self.camera_process_owned = False
@@ -229,6 +326,22 @@ class AlignAndCorrectActionServer(Node):
         self.detection_period_sec = 1.0 / max(float(args.detection_rate_hz), 1.0)
         self.last_detection_time = 0.0
         self.markers = load_marker_map(args.marker_map)
+        self.T_base_camera = camera_mount_T(
+            args.camera_x,
+            args.camera_y,
+            args.camera_z,
+            pitch_deg=args.camera_pitch,
+            yaw_deg=args.camera_yaw,
+            roll_deg=args.camera_roll,
+        )
+        # Wall pair mode: marker bearings, lidar scan and odometry during a goal.
+        self.wall_marker_ids = ()
+        self.latest_markers = {}
+        self.latest_rays = {}
+        self.odom_sub = None
+        self.latest_odom = None
+        self.scan_sub = None
+        self.latest_scan = None
         if args.pose_source == "camera":
             dictionary_id = ARUCO_DICTS[args.dictionary]
             self.dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
@@ -239,6 +352,7 @@ class AlignAndCorrectActionServer(Node):
 
         cmd_type = TwistStamped if args.cmd_vel_stamped else Twist
         self.cmd_pub = self.create_publisher(cmd_type, args.cmd_vel_topic, 10)
+        self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, args.initialpose_topic, 10)
         self.correct_client = ActionClient(
             self,
             CorrectPoseWithAruco,
@@ -287,20 +401,32 @@ class AlignAndCorrectActionServer(Node):
             return result
 
         self.start_camera_on_goal()
-        self.start_pose_input(marker_id)
+        self.start_pose_input(marker_id, params["wall_pair"])
         preset_text = f"; preset_node={params['preset_node']}" if params["preset_node"] else ""
+        if params["wall_pair"]:
+            pair = params["wall_pair"]
+            preset_text += (
+                f"; wall_pair={pair['left_marker']}+{pair['right_marker']}; "
+                f"wall_distance={pair['wall_distance']:.3f}m; "
+                f"center_offset={pair['center_offset']:.3f}m"
+            )
         self.get_logger().info(
             f"Accepted align/correct goal: marker_id={marker_id}; "
             f"target_x={params['target_x']:.3f}m; target_z={params['target_z']:.3f}m; "
             f"check_yaw={params['check_yaw']}; "
             f"expected_base_yaw_deg={params['expected_base_yaw_deg']:.1f}; "
             f"yaw_tolerance_deg={params['yaw_tolerance_deg']:.1f}; "
+            f"z_tolerance={params['z_tolerance']:.3f}m; "
             f"align_timeout={params['align_timeout_sec']:.1f}s; apply_correction={goal.apply_correction}"
             f"{preset_text}"
         )
 
         try:
-            align_result = self.run_alignment(goal_handle, params, goal)
+            if params["wall_pair"]:
+                align_result = self.run_wall_alignment(goal_handle, params)
+            else:
+                align_result = self.run_alignment(goal_handle, params)
+            wall_measurement = align_result.pop("wall_measurement", None)
             if goal_handle.is_cancel_requested:
                 result = self.make_result(False, RESULT_CANCELED, "Align/correct canceled.", **align_result)
                 goal_handle.canceled()
@@ -322,15 +448,11 @@ class AlignAndCorrectActionServer(Node):
                 goal_handle.succeed()
                 return result
 
-            selected_marker_id = self.selected_marker_id or marker_id
             self.stop_pose_input()
-            if selected_marker_id != marker_id:
-                params = self.params_from_goal(goal, selected_marker_id)
-                self.get_logger().info(
-                    f"Using visible fallback marker ID{selected_marker_id} "
-                    f"for pose correction (requested ID{marker_id})"
-                )
-            correction = self.run_pose_correction(goal_handle, selected_marker_id, params)
+            if wall_measurement is not None and self.args.wall_initialpose:
+                correction = self.wall_pose_correction(params, wall_measurement)
+            else:
+                correction = self.run_pose_correction(goal_handle, marker_id, params)
             merged = dict(align_result)
             merged.update(correction)
             if not correction["correction_success"]:
@@ -364,6 +486,8 @@ class AlignAndCorrectActionServer(Node):
         check_yaw = bool(goal.check_yaw)
         expected_base_yaw_deg = finite_or_default(goal.expected_base_yaw_deg, ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG)
         yaw_tolerance_deg = positive_or_default(goal.yaw_tolerance_deg, self.args.yaw_tolerance_deg)
+        z_tolerance = positive_or_default(goal.z_tolerance, self.args.z_tolerance)
+        wall_pair = None
 
         if preset:
             target_x_omitted = is_close(goal.target_x, ACTION_DEFAULT_TARGET_X) or is_close(
@@ -378,6 +502,8 @@ class AlignAndCorrectActionServer(Node):
                 target_x = float(preset["target_x"])
             if target_z_omitted:
                 target_z = float(preset["target_z"])
+            if self.args.wall_align and target_x_omitted and target_z_omitted:
+                wall_pair = self.wall_pair_for_node(preset["node"])
             if bool(goal.check_yaw) and preset["check_yaw"] is False:
                 check_yaw = False
             if (
@@ -385,6 +511,16 @@ class AlignAndCorrectActionServer(Node):
                 and is_close(goal.expected_base_yaw_deg, ACTION_DEFAULT_EXPECTED_BASE_YAW_DEG)
             ):
                 expected_base_yaw_deg = float(preset["expected_base_yaw_deg"])
+            if (
+                preset.get("yaw_tolerance_deg") is not None
+                and is_close(goal.yaw_tolerance_deg, ACTION_DEFAULT_YAW_TOLERANCE_DEG)
+            ):
+                yaw_tolerance_deg = float(preset["yaw_tolerance_deg"])
+            if (
+                preset.get("z_tolerance") is not None
+                and is_close(goal.z_tolerance, ACTION_DEFAULT_Z_TOLERANCE)
+            ):
+                z_tolerance = float(preset["z_tolerance"])
 
         return {
             "timeout_sec": positive_or_default(goal.timeout_sec, self.args.timeout_sec),
@@ -393,7 +529,7 @@ class AlignAndCorrectActionServer(Node):
             "target_x": target_x,
             "target_z": target_z,
             "x_tolerance": positive_or_default(goal.x_tolerance, self.args.x_tolerance),
-            "z_tolerance": positive_or_default(goal.z_tolerance, self.args.z_tolerance),
+            "z_tolerance": z_tolerance,
             "z_min_stop": positive_or_default(goal.z_min_stop, self.args.z_min_stop),
             "stable_sec": positive_or_default(goal.stable_sec, self.args.stable_sec),
             "max_linear": positive_or_default(goal.max_linear, self.args.max_linear),
@@ -411,11 +547,28 @@ class AlignAndCorrectActionServer(Node):
             "expected_base_yaw_deg": expected_base_yaw_deg,
             "yaw_tolerance_deg": yaw_tolerance_deg,
             "preset_node": preset["node"] if preset else "",
+            "marker_id": int(marker_id),
+            "wall_pair": wall_pair,
         }
+
+    def wall_pair_for_node(self, node):
+        config = WALL_PAIR_TARGETS.get(node)
+        if config is None:
+            return None
+        left = self.markers.get(config["left_marker"])
+        right = self.markers.get(config["right_marker"])
+        if left is None or right is None:
+            self.get_logger().warn(
+                f"Wall pair alignment for {node} disabled: marker map lacks "
+                f"ID{config['left_marker']} or ID{config['right_marker']}"
+            )
+            return None
+        map_spacing = float(np.linalg.norm(np.asarray(right.position[:2]) - np.asarray(left.position[:2])))
+        return dict({"marker_spacing": map_spacing}, **config, node=node)
 
     def validate_params(self, params):
         for key, value in params.items():
-            if key in ("check_wall_yaw", "check_yaw", "preset_node"):
+            if key in ("check_wall_yaw", "check_yaw", "preset_node", "wall_pair"):
                 continue
             if not math.isfinite(float(value)):
                 return False
@@ -429,7 +582,7 @@ class AlignAndCorrectActionServer(Node):
             and params["min_angular"] <= params["max_angular"]
         )
 
-    def run_alignment(self, goal_handle, params, goal):
+    def run_alignment(self, goal_handle, params):
         started = time.time()
         aligned_since = None
         last_marker_seen = False
@@ -439,8 +592,10 @@ class AlignAndCorrectActionServer(Node):
         final_x_error = 0.0
         final_z_error = 0.0
         final_wall_yaw_error = 0.0
+        # Send the stop burst only when switching from motion to stop; repeating
+        # it every loop floods /cmd_vel and loads the OpenCR node.
+        stopped = False
 
-        active_marker_id = self.requested_marker_id
         while rclpy.ok():
             now = time.time()
             if goal_handle.is_cancel_requested:
@@ -475,7 +630,9 @@ class AlignAndCorrectActionServer(Node):
             marker_visible = pose is not None and (now - pose["received_at"]) <= self.args.pose_timeout
             if not marker_visible:
                 aligned_since = None
-                self.stop_robot()
+                if not stopped:
+                    self.stop_robot()
+                    stopped = True
                 if now - last_feedback >= self.args.feedback_period:
                     self.publish_feedback(
                         goal_handle,
@@ -495,13 +652,6 @@ class AlignAndCorrectActionServer(Node):
                 continue
 
             last_marker_seen = True
-            visible_marker_id = pose.get("marker_id") or self.selected_marker_id or active_marker_id
-            if visible_marker_id and visible_marker_id != active_marker_id:
-                active_marker_id = int(visible_marker_id)
-                params = self.params_from_goal(goal, active_marker_id)
-                self.get_logger().info(
-                    f"Switched alignment to visible fallback marker ID{active_marker_id}"
-                )
             msg = pose["msg"]
             x = float(msg.pose.position.x)
             z = float(msg.pose.position.z)
@@ -532,12 +682,15 @@ class AlignAndCorrectActionServer(Node):
                 )
 
             if state == "aligned":
-                self.stop_robot()
+                if not stopped:
+                    self.stop_robot()
+                    stopped = True
                 if aligned_since is None:
                     aligned_since = now
             else:
                 aligned_since = None
                 self.publish_cmd(linear_x, angular_z)
+                stopped = False
 
             aligned_duration = 0.0 if aligned_since is None else now - aligned_since
             if now - last_feedback >= self.args.feedback_period:
@@ -622,6 +775,381 @@ class AlignAndCorrectActionServer(Node):
         )
         linear_x = clamp(params["kz"] * z_error, -params["max_linear"], params["max_linear"])
         return linear_x, angular_z, "aligning_position", x_error, z_error, wall_yaw_error
+
+    def run_wall_alignment(self, goal_handle, params):
+        """Align N5/N6 to the wall with lidar heading/distance and marker bearings.
+
+        Each step stops, measures (lidar wall line for heading and distance,
+        marker bearings for the lateral offset), then makes one bounded move:
+        ALIGN_YAW, CENTER (turn, short drive, turn back) or APPROACH. Two
+        consecutive in-tolerance measurements finish the alignment.
+        """
+        pair = params["wall_pair"]
+        args = self.args
+        started = time.time()
+        centering = 0
+        stable_hits = 0
+        stopped = False
+        yaw_tolerance = math.radians(args.pair_yaw_tolerance_deg)
+        max_turn = math.radians(args.pair_max_turn_deg)
+        final = {"x": 0.0, "z": 0.0, "lateral": 0.0, "distance": 0.0, "heading": 0.0}
+
+        def result(success, marker_lost, message):
+            self.stop_robot()
+            return self.align_result(
+                success,
+                marker_lost,
+                final["x"],
+                final["z"],
+                final["lateral"],
+                final["distance"],
+                final["heading"],
+                message,
+            )
+
+        def feedback(state, visible=True, linear_x=0.0, angular_z=0.0):
+            self.publish_feedback(
+                goal_handle, state, visible, final["x"], final["z"],
+                final["lateral"], final["distance"], final["heading"], linear_x, angular_z, 0.0,
+            )
+
+        while rclpy.ok():
+            if goal_handle.is_cancel_requested:
+                return result(False, False, "Canceled.")
+            if time.time() - started > args.pair_timeout_sec:
+                return result(False, False, "Wall pair alignment timed out.")
+
+            if not stopped:
+                self.stop_robot()
+                stopped = True
+            measured, error = self.measure_wall(goal_handle, pair)
+            if measured is None:
+                stable_hits = 0
+                if error == "no_marker":
+                    feedback("waiting_for_marker", visible=False)
+                    continue
+                if error == "canceled":
+                    continue
+                return result(False, False, error)
+
+            marker = self.fresh_marker(params["marker_id"])
+            if marker is not None:
+                final["x"] = marker["x"]
+                final["z"] = marker["z"]
+            heading = measured["heading"]
+            lateral = measured["lateral"]
+            distance_error = measured["distance"] - pair["wall_distance"]
+            final["lateral"] = lateral
+            final["distance"] = distance_error
+            final["heading"] = heading
+
+            if measured["distance"] - args.camera_x < params["z_min_stop"]:
+                return result(False, False, "Wall is too close; stopped before alignment.")
+
+            if abs(heading) > yaw_tolerance:
+                stable_hits = 0
+                turn = clamp(-heading, -max_turn, max_turn)
+                feedback("align_yaw", angular_z=turn)
+                ok, message = self.odom_rotate(goal_handle, turn)
+            elif abs(lateral) > args.pair_lateral_tolerance:
+                stable_hits = 0
+                if centering >= args.pair_max_centering:
+                    return result(
+                        False,
+                        False,
+                        f"Lateral offset {lateral * 100.0:.1f} cm remains after {centering} centering moves.",
+                    )
+                centering += 1
+                feedback("center")
+                ok, message = self.center_step(goal_handle, lateral, distance_error, heading)
+            elif abs(distance_error) > args.pair_distance_tolerance:
+                stable_hits = 0
+                drive = clamp(distance_error, -args.pair_max_drive, args.pair_max_drive)
+                feedback("approach_distance", linear_x=drive)
+                ok, message = self.odom_drive(goal_handle, drive)
+            else:
+                stable_hits += 1
+                feedback("stable_check")
+                if stable_hits >= 2:
+                    self.get_logger().info(
+                        f"Wall pair aligned: lateral={lateral * 100.0:+.1f}cm "
+                        f"distance_error={distance_error * 100.0:+.1f}cm "
+                        f"heading={math.degrees(heading):+.1f}deg centering={centering} "
+                        f"markers={measured['markers']}"
+                    )
+                    return dict(result(True, False, "Wall pair alignment succeeded."), wall_measurement=measured)
+                time.sleep(args.stable_sec)
+                continue
+
+            if not ok:
+                return result(False, False, message)
+
+        return result(False, False, "ROS shutdown during alignment.")
+
+    def center_step(self, goal_handle, lateral, distance_error, heading):
+        """Shift sideways: turn by a bounded angle, drive a short way, turn back.
+
+        Drives forward when the robot is too far from the wall and backward
+        otherwise, so the distance stays near the target while centering.
+        """
+        args = self.args
+        turn = math.radians(args.pair_max_turn_deg)
+        drive = min(args.pair_max_drive, abs(lateral) / math.sin(turn))
+        direction = 1.0 if distance_error > 0.0 else -1.0
+        # lateral > 0: robot is right of center, so it must move left.
+        path_heading = math.copysign(turn, lateral) * direction
+        self.get_logger().info(
+            f"Wall center step: lateral={lateral * 100.0:+.1f}cm "
+            f"turn={math.degrees(path_heading - heading):+.1f}deg drive={direction * drive * 100.0:+.1f}cm"
+        )
+        for kind, amount in (
+            ("turn", path_heading - heading),
+            ("drive", direction * drive),
+            ("turn", -path_heading),
+        ):
+            if kind == "turn":
+                ok, message = self.odom_rotate(goal_handle, amount)
+            else:
+                ok, message = self.odom_drive(goal_handle, amount)
+            if not ok:
+                return False, message
+        return True, ""
+
+    def odom_rotate(self, goal_handle, angle):
+        args = self.args
+        start = self.get_odom()
+        if start is None:
+            return False, f"No odometry on {args.odom_topic} for the wall maneuver."
+        target = start["yaw"] + angle
+        tolerance = math.radians(args.maneuver_yaw_tolerance_deg)
+        started = time.time()
+        while rclpy.ok():
+            if goal_handle.is_cancel_requested:
+                return False, "Canceled."
+            odom = self.get_odom()
+            if odom is None or time.time() - odom["received_at"] > args.odom_timeout:
+                return False, "Odometry stopped during the wall maneuver."
+            error = wrap_angle(target - odom["yaw"])
+            if abs(error) <= tolerance:
+                break
+            if time.time() - started > args.maneuver_timeout_sec:
+                return False, "Wall maneuver turn timed out."
+            self.publish_cmd(
+                0.0,
+                clamp_min_magnitude(
+                    args.maneuver_kyaw * error,
+                    args.maneuver_min_angular,
+                    -args.maneuver_angular,
+                    args.maneuver_angular,
+                ),
+            )
+            time.sleep(args.maneuver_period)
+        self.stop_robot()
+        return True, ""
+
+    def odom_drive(self, goal_handle, distance):
+        args = self.args
+        start = self.get_odom()
+        if start is None:
+            return False, f"No odometry on {args.odom_topic} for the wall maneuver."
+        heading = (math.cos(start["yaw"]), math.sin(start["yaw"]))
+        started = time.time()
+        while rclpy.ok():
+            if goal_handle.is_cancel_requested:
+                return False, "Canceled."
+            odom = self.get_odom()
+            if odom is None or time.time() - odom["received_at"] > args.odom_timeout:
+                return False, "Odometry stopped during the wall maneuver."
+            traveled = (odom["x"] - start["x"]) * heading[0] + (odom["y"] - start["y"]) * heading[1]
+            error = distance - traveled
+            if abs(error) <= args.maneuver_distance_tolerance:
+                break
+            if time.time() - started > args.maneuver_timeout_sec:
+                return False, "Wall maneuver drive timed out."
+            linear_x = math.copysign(
+                clamp(abs(args.maneuver_kdist * error), args.maneuver_min_linear, args.maneuver_linear),
+                error,
+            )
+            # Hold the start heading while driving straight.
+            angular_z = clamp(
+                args.maneuver_kyaw * wrap_angle(start["yaw"] - odom["yaw"]),
+                -args.maneuver_min_angular,
+                args.maneuver_min_angular,
+            )
+            self.publish_cmd(linear_x, angular_z)
+            time.sleep(args.maneuver_period)
+        self.stop_robot()
+        return True, ""
+
+    def measure_wall(self, goal_handle, pair):
+        """Measure at standstill: lidar wall line plus marker bearings.
+
+        Returns (measurement, None) or (None, error). Heading > 0 means the
+        robot is turned left (CCW) from facing the wall; lateral > 0 means it
+        is right of the node center; distance is base_footprint to the wall.
+        """
+        args = self.args
+        time.sleep(args.pair_settle_sec)
+        with self.pose_lock:
+            self.latest_rays = {}
+        fits = []
+        rejected_scans = 0
+        rays = {pair["left_marker"]: [], pair["right_marker"]: []}
+        seen_scan = None
+        seen_ray = {}
+        deadline = time.time() + args.pair_measure_sec
+        while time.time() < deadline:
+            if goal_handle.is_cancel_requested:
+                return None, "canceled"
+            with self.pose_lock:
+                scan = self.latest_scan
+                latest_rays = dict(self.latest_rays)
+            if scan is not None and scan is not seen_scan:
+                seen_scan = scan
+                fit = fit_wall_line(scan, args)
+                if fit is None:
+                    rejected_scans += 1
+                else:
+                    fits.append(fit)
+            for marker_id, ray in latest_rays.items():
+                if marker_id in rays and seen_ray.get(marker_id) != ray["received_at"]:
+                    seen_ray[marker_id] = ray["received_at"]
+                    rays[marker_id].append(ray["direction"])
+            time.sleep(0.02)
+
+        if len(fits) < args.pair_min_scans:
+            return None, (
+                f"Lidar wall fit failed ({len(fits)} good scans, {rejected_scans} rejected); "
+                "check the wall in front of the robot."
+            )
+        k = float(np.median([fit[0] for fit in fits]))
+        b = float(np.median([fit[1] for fit in fits]))
+        heading = math.atan(k)
+        distance = b * math.cos(heading)
+
+        camera_xy = (float(self.T_base_camera[0, 3]), float(self.T_base_camera[1, 3]))
+        hits = {}
+        for marker_id, directions in rays.items():
+            if len(directions) < 3:
+                continue
+            along = ray_wall_along(camera_xy, np.mean(np.asarray(directions), axis=0), k, b)
+            if along is not None:
+                hits[marker_id] = along
+        if not hits:
+            return None, "no_marker"
+        left_id = pair["left_marker"]
+        right_id = pair["right_marker"]
+        if left_id in hits and right_id in hits:
+            # Interpolate between the two hits by the map ratio: this cancels a
+            # bearing scale error (the 320x240 calibration reads the pair about
+            # 6% wider than it is near the image edges).
+            fraction = pair["center_offset"] / pair["marker_spacing"]
+            center_along = hits[left_id] + (hits[right_id] - hits[left_id]) * fraction
+            source = "pair"
+        elif left_id in hits:
+            center_along = hits[left_id] + pair["center_offset"]
+            source = f"ID{left_id} only"
+        else:
+            center_along = hits[right_id] - (pair["marker_spacing"] - pair["center_offset"])
+            source = f"ID{right_id} only"
+        lateral = -center_along
+        return {
+            "heading": heading,
+            "distance": distance,
+            "lateral": lateral,
+            "markers": source,
+        }, None
+
+    def fresh_marker(self, marker_id):
+        with self.pose_lock:
+            marker = self.latest_markers.get(marker_id)
+        if marker is None or time.time() - marker["received_at"] > self.args.pose_timeout:
+            return None
+        return marker
+
+    def odom_cb(self, msg):
+        q = msg.pose.pose.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        with self.pose_lock:
+            self.latest_odom = {
+                "received_at": time.time(),
+                "x": float(msg.pose.pose.position.x),
+                "y": float(msg.pose.pose.position.y),
+                "yaw": yaw,
+            }
+
+    def scan_cb(self, msg):
+        with self.pose_lock:
+            self.latest_scan = msg
+
+    def get_odom(self):
+        with self.pose_lock:
+            return None if self.latest_odom is None else dict(self.latest_odom)
+
+    def wall_pose_correction(self, params, measured):
+        """Publish /initialpose from the wall alignment measurement.
+
+        The marker map gives the wall line and node center; lidar heading and
+        distance plus the bearing-based lateral offset place the robot on it.
+        This replaces the tvec-based pose corrector for wall pair nodes, whose
+        heading and lateral estimates drift with distance.
+        """
+        pair = params["wall_pair"]
+        left = np.asarray(self.markers[pair["left_marker"]].position[:2], dtype=float)
+        right = np.asarray(self.markers[pair["right_marker"]].position[:2], dtype=float)
+        along = (right - left) / np.linalg.norm(right - left)
+        normal = np.array([along[1], -along[0]])
+        if np.dot(np.asarray(self.markers[pair["left_marker"]].normal[:2], dtype=float), normal) < 0.0:
+            normal = -normal
+        foot = left + pair["center_offset"] * along
+        xy = foot + measured["lateral"] * along + measured["distance"] * normal
+        yaw = wrap_angle(math.atan2(-normal[1], -normal[0]) + measured["heading"])
+        yaw_deg = math.degrees(yaw)
+        pose = {
+            "map_base_x": float(xy[0]),
+            "map_base_y": float(xy[1]),
+            "map_base_yaw_deg": yaw_deg,
+            "map_base_xy_std": 0.0,
+            "map_base_yaw_std_deg": 0.0,
+        }
+
+        yaw_error = math.degrees(wrap_angle(yaw - math.radians(params["expected_base_yaw_deg"])))
+        if params["check_yaw"] and abs(yaw_error) > params["yaw_tolerance_deg"]:
+            return dict(
+                pose,
+                correction_success=False,
+                correction_result_code=CorrectPoseWithAruco.Result.RESULT_UNSTABLE_SAMPLES,
+                correction_message=(
+                    f"Wall pose yaw {yaw_deg:.1f}deg is {yaw_error:+.1f}deg from expected "
+                    f"{params['expected_base_yaw_deg']:.1f}deg."
+                ),
+            )
+
+        msg = PoseWithCovarianceStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.args.map_frame
+        msg.pose.pose.position.x = float(xy[0])
+        msg.pose.pose.position.y = float(xy[1])
+        msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+        xy_var = float(self.args.initialpose_xy_std) ** 2
+        msg.pose.covariance[0] = xy_var
+        msg.pose.covariance[7] = xy_var
+        msg.pose.covariance[35] = math.radians(float(self.args.initialpose_yaw_std_deg)) ** 2
+        self.initialpose_pub.publish(msg)
+        self.get_logger().info(
+            f"Published wall pose to {self.args.initialpose_topic}: "
+            f"x={xy[0]:.3f} y={xy[1]:.3f} yaw={yaw_deg:.1f}deg"
+        )
+        return dict(
+            pose,
+            correction_success=True,
+            correction_result_code=CorrectPoseWithAruco.Result.RESULT_SUCCESS,
+            correction_message=(
+                "Published /initialpose from lidar wall line and marker bearings "
+                f"(markers={measured['markers']})."
+            ),
+        )
 
     def run_pose_correction(self, goal_handle, marker_id, params):
         timeout_sec = float(params["correct_timeout_sec"])
@@ -773,12 +1301,30 @@ class AlignAndCorrectActionServer(Node):
         result.map_base_yaw_std_deg = float(map_base_yaw_std_deg)
         return result
 
-    def start_pose_input(self, marker_id):
+    def start_pose_input(self, marker_id, wall_pair=None):
         with self.pose_lock:
             self.latest_pose = None
-            self.requested_marker_id = int(marker_id)
-            self.selected_marker_id = None
+            self.latest_markers = {}
+            self.latest_rays = {}
+            self.latest_odom = None
+            self.latest_scan = None
         self.last_detection_time = 0.0
+        if wall_pair and self.odom_sub is None:
+            self.odom_sub = self.create_subscription(
+                Odometry,
+                self.args.odom_topic,
+                self.odom_cb,
+                10,
+                callback_group=self.callback_group,
+            )
+        if wall_pair and self.scan_sub is None:
+            self.scan_sub = self.create_subscription(
+                LaserScan,
+                self.args.scan_topic,
+                self.scan_cb,
+                qos_profile_sensor_data,
+                callback_group=self.callback_group,
+            )
 
         if self.args.pose_source == "topic":
             topic = self.pose_topic_for_marker(marker_id)
@@ -794,6 +1340,9 @@ class AlignAndCorrectActionServer(Node):
 
         with self.pose_input_lock:
             self.active_marker_id = int(marker_id)
+            self.wall_marker_ids = (
+                (wall_pair["left_marker"], wall_pair["right_marker"]) if wall_pair else ()
+            )
             if self.camera_info_sub is None:
                 self.camera_info_sub = self.image_node.create_subscription(
                     CameraInfo,
@@ -899,9 +1448,16 @@ class AlignAndCorrectActionServer(Node):
         if self.pose_sub is not None:
             self.destroy_subscription(self.pose_sub)
             self.pose_sub = None
+        if self.odom_sub is not None:
+            self.destroy_subscription(self.odom_sub)
+            self.odom_sub = None
+        if self.scan_sub is not None:
+            self.destroy_subscription(self.scan_sub)
+            self.scan_sub = None
         with self.pose_input_lock:
             marker_id = self.active_marker_id
             self.active_marker_id = None
+            self.wall_marker_ids = ()
             image_sub = self.image_sub
             camera_info_sub = self.camera_info_sub
             self.image_sub = None
@@ -914,18 +1470,19 @@ class AlignAndCorrectActionServer(Node):
             self.get_logger().info(f"Stopped on-demand ArUco alignment detection for marker_id={marker_id}")
         with self.pose_lock:
             self.latest_pose = None
-            self.requested_marker_id = None
-            self.selected_marker_id = None
+            self.latest_markers = {}
+            self.latest_rays = {}
+            self.latest_odom = None
+            self.latest_scan = None
 
     def pose_cb(self, msg):
         self.store_latest_pose(msg)
 
-    def store_latest_pose(self, msg, marker_id=None):
+    def store_latest_pose(self, msg):
         with self.pose_lock:
             self.latest_pose = {
                 "received_at": time.time(),
                 "msg": msg,
-                "marker_id": marker_id,
             }
 
     def camera_info_cb(self, msg):
@@ -937,8 +1494,9 @@ class AlignAndCorrectActionServer(Node):
 
     def image_cb(self, raw_msg):
         with self.pose_input_lock:
-            requested_marker_id = self.requested_marker_id or self.active_marker_id
-        if requested_marker_id is None:
+            marker_id = self.active_marker_id
+            wall_marker_ids = self.wall_marker_ids
+        if marker_id is None:
             return
 
         now = time.monotonic()
@@ -964,32 +1522,33 @@ class AlignAndCorrectActionServer(Node):
         if ids is None:
             return
 
-        ids_list = ids.flatten().tolist()
-        candidate_marker_ids = [requested_marker_id]
-        fallback_marker_id = MARKER_FALLBACK_PAIRS.get(requested_marker_id)
-        if fallback_marker_id is not None:
-            candidate_marker_ids.append(fallback_marker_id)
-        visible_marker_id = next(
-            (candidate_id for candidate_id in candidate_marker_ids if candidate_id in ids_list),
-            None,
-        )
-        if visible_marker_id is None:
-            return
-
-        idx = ids_list.index(visible_marker_id)
-        marker_size = self.marker_size_for(visible_marker_id)
-        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-            [corners[idx]],
-            marker_size,
-            self.camera_matrix,
-            self.dist_coeffs,
-        )
-        with self.pose_lock:
-            self.selected_marker_id = int(visible_marker_id)
-        self.store_latest_pose(
-            self.make_pose_msg(msg.header.stamp, rvecs[0][0], tvecs[0][0]),
-            marker_id=int(visible_marker_id),
-        )
+        received_at = time.time()
+        for idx, detected_id in enumerate(ids.flatten().tolist()):
+            if detected_id != marker_id and detected_id not in wall_marker_ids:
+                continue
+            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+                [corners[idx]],
+                self.marker_size_for(detected_id),
+                self.camera_matrix,
+                self.dist_coeffs,
+            )
+            tvec = tvecs[0][0]
+            if detected_id == marker_id:
+                self.store_latest_pose(self.make_pose_msg(msg.header.stamp, rvecs[0][0], tvec))
+            if detected_id in wall_marker_ids:
+                # Only the bearing is used; tvec depth is too coarse here.
+                direction = self.T_base_camera[:3, :3] @ (np.asarray(tvec, dtype=float) / np.linalg.norm(tvec))
+                horizontal = direction[:2] / np.linalg.norm(direction[:2])
+                with self.pose_lock:
+                    self.latest_markers[detected_id] = {
+                        "received_at": received_at,
+                        "x": float(tvec[0]),
+                        "z": float(tvec[2]),
+                    }
+                    self.latest_rays[detected_id] = {
+                        "received_at": received_at,
+                        "direction": (float(horizontal[0]), float(horizontal[1])),
+                    }
 
     def marker_size_for(self, marker_id):
         marker = self.markers.get(marker_id)
@@ -1124,6 +1683,56 @@ def parse_args():
     parser.add_argument("--wall-yaw-tolerance-deg", type=float, default=2.0)
     parser.add_argument("--kyaw", type=float, default=0.6)
 
+    # Camera mount, same convention and defaults as the pose corrector.
+    parser.add_argument("--camera-x", type=float, default=0.045)
+    parser.add_argument("--camera-y", type=float, default=0.0)
+    parser.add_argument("--camera-z", type=float, default=0.115)
+    parser.add_argument("--camera-pitch", type=float, default=-5.0)
+    parser.add_argument("--camera-yaw", type=float, default=0.0)
+    parser.add_argument("--camera-roll", type=float, default=0.0)
+
+    # Wall alignment (WALL_PAIR_TARGETS nodes, preset targets only).
+    parser.add_argument("--wall-align", type=bool_arg, default=True)
+    parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=1.0)
+    parser.add_argument("--pair-lateral-tolerance", type=float, default=0.010)
+    parser.add_argument("--pair-distance-tolerance", type=float, default=0.010)
+    # Bounds for one move: turn angle and drive distance.
+    parser.add_argument("--pair-max-turn-deg", type=float, default=8.0)
+    parser.add_argument("--pair-max-drive", type=float, default=0.03)
+    parser.add_argument("--pair-max-centering", type=int, default=10)
+    parser.add_argument("--pair-timeout-sec", type=float, default=60.0)
+    parser.add_argument("--pair-settle-sec", type=float, default=0.3)
+    parser.add_argument("--pair-measure-sec", type=float, default=1.0)
+    parser.add_argument("--pair-min-scans", type=int, default=3)
+    parser.add_argument("--scan-topic", default="/scan")
+    # base_scan position in base_footprint (turtlebot3 burger URDF).
+    parser.add_argument("--scan-x", type=float, default=-0.032)
+    parser.add_argument("--wall-fit-min-x", type=float, default=0.25)
+    parser.add_argument("--wall-fit-max-x", type=float, default=0.60)
+    parser.add_argument("--wall-fit-half-width", type=float, default=0.35)
+    parser.add_argument("--wall-fit-inlier-tolerance", type=float, default=0.010)
+    parser.add_argument("--wall-fit-min-points", type=int, default=20)
+    parser.add_argument("--wall-fit-max-rms", type=float, default=0.005)
+    # Wall pair nodes publish /initialpose from the wall measurement instead of
+    # calling the tvec-based pose corrector.
+    parser.add_argument("--wall-initialpose", type=bool_arg, default=True)
+    parser.add_argument("--map-frame", default="map")
+    parser.add_argument("--initialpose-topic", default=scoped_topic(robot_namespace, "initialpose"))
+    parser.add_argument("--initialpose-xy-std", type=float, default=0.05)
+    parser.add_argument("--initialpose-yaw-std-deg", type=float, default=5.0)
+    parser.add_argument("--odom-topic", default="/odom")
+    parser.add_argument("--odom-timeout", type=float, default=0.5)
+    parser.add_argument("--maneuver-linear", type=float, default=0.030)
+    parser.add_argument("--maneuver-min-linear", type=float, default=0.012)
+    parser.add_argument("--maneuver-kdist", type=float, default=1.5)
+    parser.add_argument("--maneuver-distance-tolerance", type=float, default=0.003)
+    parser.add_argument("--maneuver-angular", type=float, default=0.25)
+    parser.add_argument("--maneuver-min-angular", type=float, default=0.05)
+    parser.add_argument("--maneuver-kyaw", type=float, default=1.5)
+    parser.add_argument("--maneuver-yaw-tolerance-deg", type=float, default=0.4)
+    parser.add_argument("--maneuver-period", type=float, default=0.05)
+    parser.add_argument("--maneuver-timeout-sec", type=float, default=10.0)
+
     parser.add_argument("--timeout-sec", type=float, default=30.0)
     parser.add_argument("--align-timeout-sec", type=float, default=25.0)
     parser.add_argument("--correct-timeout-sec", type=float, default=10.0)
@@ -1132,7 +1741,8 @@ def parse_args():
 
     parser.add_argument("--pose-timeout", type=float, default=0.3)
     parser.add_argument("--feedback-period", type=float, default=0.2)
-    parser.add_argument("--control-period", type=float, default=0.03)
+    # Matches the 10 Hz detection rate; a faster loop only resends the same command.
+    parser.add_argument("--control-period", type=float, default=0.1)
     return parser.parse_args(remove_ros_args(args=sys.argv)[1:])
 
 
