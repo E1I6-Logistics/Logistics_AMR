@@ -2,12 +2,20 @@
 """Launch ArUco pickup alignment followed by pose correction."""
 
 import os
+import socket
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+
+
+# Camera yaw [deg, left positive] per robot hostname, fitted on the N6 floor
+# mark (2026-10-07). An explicit camera_yaw:= launch argument still wins.
+CAMERA_YAW_BY_HOST = {
+    "turtlebot3": "2.1",
+}
 
 
 def default_robot_namespace():
@@ -75,7 +83,9 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_y", default_value="0.0"),
         DeclareLaunchArgument("camera_z", default_value="0.115"),
         DeclareLaunchArgument("camera_pitch", default_value="-5.0"),
-        DeclareLaunchArgument("camera_yaw", default_value="0.0"),
+        DeclareLaunchArgument(
+            "camera_yaw", default_value=CAMERA_YAW_BY_HOST.get(socket.gethostname(), "0.0")
+        ),
         DeclareLaunchArgument("camera_roll", default_value="0.0"),
         DeclareLaunchArgument("pose_source", default_value="camera"),
         DeclareLaunchArgument("approx_camera_info", default_value="false"),
