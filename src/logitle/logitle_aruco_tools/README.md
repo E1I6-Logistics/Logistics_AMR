@@ -89,6 +89,23 @@ ros2 launch logitle_bringup logitle_robot.launch.py \
   camera_info_url:=file:///home/turtlebot3/camera/imx219_320x240.yaml
 ```
 
+### 카메라 영상이 안 나올 때 (`Failed to call start`)
+
+Align goal이 매번 정렬 제한 시간(25초)에 끝나고 카메라 로그에 다음 에러가 있으면, Raspberry Pi용이
+아닌 libcamera가 로드된 것입니다.
+
+```text
+ERROR IPCPipe ipc_pipe_unixsocket.cpp:131 Call timeout!
+ERROR IPAProxy raspberrypi_ipa_proxy.cpp:316 Failed to call start: -110
+```
+
+로봇에는 `/usr/local/lib/aarch64-linux-gnu`(Raspberry Pi용 소스 빌드, 로그에 `libcamera v0.7.2+rpt...`)와
+`/opt/ros/jazzy/lib`(`ros-jazzy-libcamera`, 로그에 `libcamera v0.7.2`) 두 libcamera가 있습니다. ROS를
+source하면 `/opt/ros/jazzy/lib`가 먼저 잡혀 Raspberry Pi IPA가 시작되지 않습니다. `camera.launch.py`가
+카메라 컨테이너에만 `/usr/local/lib/aarch64-linux-gnu`를 `LD_LIBRARY_PATH` 앞에 붙이므로, 별도
+`export LD_LIBRARY_PATH=...` 없이 실행하면 됩니다. 카메라 로그에 `+rpt`가 없으면 `turtlebot3_bringup`이
+최신(dev `6f73534` 이후)으로 빌드됐는지 확인합니다.
+
 현장 측정처럼 전체 운용 스택이 필요 없는 경우에는 필요한 노드만 켜서 부하를 줄입니다.
 
 ArUco 마커 x/z 값만 확인할 때:
@@ -277,6 +294,33 @@ x/z preset 정렬 대신 벽 정렬을 사용합니다. 마커 하나의 x/z만 
 - 정렬 후 pose corrector 대신 같은 측정값으로 `/initialpose`를 직접 발행합니다.
 - 끄려면 align 서버에 `--wall-align false`를 줍니다. 한 번에 움직이는 한도는
   `--pair-max-turn-deg`, `--pair-max-drive`로 조절합니다.
+- 로봇 앞 0.25~0.60m, 좌우 ±0.35m에 벽이 라이다로 보여야 합니다. 벽 직선 피팅이 안 되면
+  정렬을 바로 실패로 끝냅니다. 마커가 하나도 안 보이면 정지한 채로 기다립니다.
+
+주요 파라미터(align 서버 인자):
+
+| 파라미터 | 기본값 | 설명 |
+| --- | --- | --- |
+| `--wall-align` | true | N5/N6 벽 정렬 사용 (false면 x/z preset 정렬) |
+| `--wall-initialpose` | true | 벽 정렬 측정값으로 `/initialpose` 발행 (pose corrector 미사용) |
+| `--pair-yaw-tolerance-deg` | 1.0 | 방향 허용 오차 |
+| `--pair-lateral-tolerance` | 0.010 | 좌우 허용 오차 [m] |
+| `--pair-distance-tolerance` | 0.010 | 거리 허용 오차 [m] |
+| `--pair-max-turn-deg` | 8.0 | 한 번 회전 한도 |
+| `--pair-max-drive` | 0.03 | 한 번 직진 한도 [m] |
+| `--pair-max-centering` | 10 | 중심 보정 최대 횟수 |
+| `--pair-timeout-sec` | 60 | 벽 정렬 제한 시간 |
+
+목표값을 다시 잴 때는 로봇 없이 바닥 노드 표시만 기준으로 두 값을 잽니다.
+`WALL_PAIR_TARGETS`(`logitle_align_and_correct_action_server.py`)의 `center_offset`, `wall_distance`에 넣습니다.
+
+- `center_offset`: 왼쪽 마커(N5 ID24, N6 ID25) 중심에서 벽을 따라 오른쪽으로, 노드 표시 바로 앞 지점까지 거리
+- `wall_distance`: 노드 표시에서 벽까지 수직 거리
+- 정렬 후 확인: 왼쪽 바퀴 중앙은 로봇 중심에서 왼쪽 8.0cm이므로, 왼쪽 마커 중심에서
+  왼쪽 바퀴 중앙까지 가로 거리가 `center_offset - 8.0cm`이면 정상입니다.
+
+N5는 노드 표시 중앙에서 ID29가 화면 오른쪽 끝에 걸려 ID24 하나로 좌우를 계산합니다. 두 마커가 모두
+보이면 두 마커 사이를 보간하므로 더 정확합니다(방향각 배율 오차 상쇄).
 
 ## Pose Correction Action
 
