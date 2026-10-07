@@ -5,7 +5,9 @@
         // Robot -> Main
         publishers: [
           "^/battery_state$",
-          "^/logitle_pose$"
+          "^/logitle_pose$",
+          "^/map$",
+          "^/plan$"
         ],
 
         // Main -> Robot
