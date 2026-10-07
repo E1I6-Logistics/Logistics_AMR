@@ -1,4 +1,5 @@
 import math
+import threading
 import numpy as np
 from enum import Enum
 from scipy.spatial import cKDTree
@@ -96,6 +97,7 @@ class PrecisionDockingServer(Node):
     def __init__(self):
         super().__init__('precision_docking_server')
         self.cb_group = ReentrantCallbackGroup()
+        self.scan_lock = threading.Lock()
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -142,8 +144,12 @@ class PrecisionDockingServer(Node):
         self.final_yaw_tol_rad = math.radians(self.p['final_yaw_tolerance_deg'])
 
     def _reset_state_variables(self):
-        self.latest_source_pts = self.target_tree = None
-        self.new_scan_available = False
+        # /scan callback과 action callback이 공유하는 데이터는 lock으로 보호
+        with self.scan_lock:
+            self.latest_source_pts = None
+            self.new_scan_available = False
+
+        self.target_tree = None
         self.current_transform = np.identity(3, dtype=np.float32)
         self.filt_rel_yaw = None
         self.filt_dock_dist = None
@@ -171,16 +177,49 @@ class PrecisionDockingServer(Node):
         return np.array(pts, dtype=np.float32)
 
     def scan_callback(self, msg: LaserScan):
+        # 무거운 LaserScan -> XY/ROI 계산은 lock 밖에서 수행한다.
         ranges = np.array(msg.ranges, dtype=np.float32)
         angles = msg.angle_min + np.arange(len(ranges), dtype=np.float32) * msg.angle_increment
 
         valid = (ranges > msg.range_min) & (ranges < msg.range_max) & np.isfinite(ranges)
-        xs, ys = ranges[valid] * np.cos(angles[valid]), ranges[valid] * np.sin(angles[valid])
-        roi = (xs < self.p['roi_x_max']) & (xs > self.p['roi_x_min']) & (np.abs(ys) < self.p['roi_y_limit'])
+        xs = ranges[valid] * np.cos(angles[valid])
+        ys = ranges[valid] * np.sin(angles[valid])
+
+        roi = (
+            (xs < self.p['roi_x_max'])
+            & (xs > self.p['roi_x_min'])
+            & (np.abs(ys) < self.p['roi_y_limit'])
+        )
+
         if np.sum(roi) >= 10:
-            self.latest_source_pts, self.new_scan_available = np.column_stack((xs[roi], ys[roi])).astype(np.float32), True
+            source_pts = np.column_stack((xs[roi], ys[roi])).astype(np.float32)
         else:
-            self.latest_source_pts = None
+            source_pts = None
+
+        # 공유 변수 교체만 아주 짧게 lock으로 보호한다.
+        with self.scan_lock:
+            self.latest_source_pts = source_pts
+            self.new_scan_available = source_pts is not None
+
+    def _take_scan_snapshot(self):
+        """
+        최신 유효 scan을 독립적인 numpy 배열로 복사해서 가져온다.
+
+        lock 안에서는 공유 변수 확인/복사/소비 플래그 변경만 하고,
+        ICP 계산은 반드시 lock 밖에서 수행한다.
+        """
+        with self.scan_lock:
+            if not self.new_scan_available or self.latest_source_pts is None:
+                return None
+
+            source_pts = self.latest_source_pts.copy()
+            self.new_scan_available = False
+
+        return source_pts
+
+    def _discard_pending_scan(self):
+        """현재 대기 중인 scan만 소비 처리한다. 배열 자체는 callback이 관리한다."""
+        with self.scan_lock:
             self.new_scan_available = False
 
     def get_odom_pose(self):
@@ -201,8 +240,14 @@ class PrecisionDockingServer(Node):
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('도킹 액션 수신: Two-Phase 제어기 가동')
-        self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data, callback_group=self.cb_group)
         self._reset_state_variables()
+        self.scan_sub = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.scan_callback,
+            qos_profile_sensor_data,
+            callback_group=self.cb_group
+        )
         for pid in [self.linear_pid, self.angular_pid, self.staging_linear_pid, self.staging_angular_pid]:
             pid.reset()
 
@@ -224,31 +269,33 @@ class PrecisionDockingServer(Node):
 
                 # Phase 1: ICP 스냅샷 후 목표 좌표/각도 확정
                 if state == DockingState.INIT:
-                    if (
-                            not self.new_scan_available
-                            or self.latest_source_pts is None
-                            or odom_x is None
-                        ):
-                            rate.sleep()
-                            continue
+                    if odom_x is None:
+                        rate.sleep()
+                        continue
+
+                    # Lock 안에서 scan 한 장을 복사하고, 이후 INIT ICP는
+                    # 이 snapshot 하나만 사용한다.
+                    source_pts = self._take_scan_snapshot()
+                    if source_pts is None:
+                        rate.sleep()
+                        continue
 
                     req_x = goal_handle.request.target_pose.pose.position.x
                     self.target_dist = req_x if req_x > 0 else self.p['robot_rear_length']
                     active_target_pts = self.generate_v_funnel()
                     self.target_tree = cKDTree(active_target_pts)
-                    self.new_scan_available = False
 
-                    # 원본 그대로의 검증된 초기 평행이동 추정 방식
-                    init_t = np.mean(self.latest_source_pts, axis=0)
+                    # 초기 평행이동 추정도 같은 snapshot을 사용
+                    init_t = np.mean(source_pts, axis=0)
                     init_T = np.identity(3, dtype=np.float32)
                     init_T[:2, 2] = -init_t
 
                     T, _, match_cnt = icp_2d(
-                        self.latest_source_pts, 
-                        self.target_tree, 
-                        active_target_pts, 
-                        initial_transform=init_T, 
-                        max_iter=40, 
+                        source_pts,
+                        self.target_tree,
+                        active_target_pts,
+                        initial_transform=init_T,
+                        max_iter=40,
                         search_radius=0.8
                     )
                     
@@ -320,7 +367,7 @@ class PrecisionDockingServer(Node):
             err = normalize_angle(tgt['dock_yaw'] - yaw)
             if abs(err) < math.radians(1.0):
                 self.publish_vel(0.0, 0.0)
-                self.new_scan_available = False
+                self._discard_pending_scan()
                 self.current_transform = np.identity(3, dtype=np.float32)
                 self.filt_dock_dist = self.filt_rel_yaw = self.filt_lateral_error = self.prev_dist = self.prev_yaw = self.prev_lateral = None
                 self.settle_timer = 0.5
@@ -354,10 +401,21 @@ class PrecisionDockingServer(Node):
             return state, valid_time
 
         else:
-            if self.new_scan_available and self.latest_source_pts is not None:
-                self.new_scan_available = False
+            # 매 제어 주기마다 최신 scan 한 장만 snapshot으로 가져온다.
+            # 이후 ICP가 도는 동안 scan_callback이 새 데이터를 써도
+            # 현재 ICP 입력은 변하지 않는다.
+            source_pts = self._take_scan_snapshot()
+
+            if source_pts is not None:
                 s_rad, max_iter = (1.5, 25) if self.filt_dock_dist is None else (0.5, 12)
-                T, fitness, match_cnt = icp_2d(self.latest_source_pts, self.target_tree, active_pts, self.current_transform, max_iter, s_rad)
+                T, fitness, match_cnt = icp_2d(
+                    source_pts,
+                    self.target_tree,
+                    active_pts,
+                    self.current_transform,
+                    max_iter,
+                    s_rad
+                )
 
                 if match_cnt >= 10:
                     R, t = T[:2, :2], T[:2, 2]
@@ -485,7 +543,10 @@ class PrecisionDockingServer(Node):
                     self.icp_fail_count += 1
 
                     if self.icp_fail_count > 3:
-                        self.current_transform = np.identity(3,dtype=np.float32)
+                        self.current_transform = np.identity(
+                            3,
+                            dtype=np.float32
+                        )
 
                         # 다음 ICP를 새 기준으로 재획득
                         self.prev_dist = None
@@ -495,7 +556,6 @@ class PrecisionDockingServer(Node):
                         self.filt_dock_dist = None
                         self.filt_rel_yaw = None
                         self.filt_lateral_error = None
-
                         self.publish_vel(0.0, 0.0)
 
                         return DockingState.ALIGN_HEADING, valid_time
