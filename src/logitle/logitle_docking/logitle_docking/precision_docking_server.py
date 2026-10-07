@@ -1,4 +1,5 @@
 import math
+import threading
 import numpy as np
 from enum import Enum
 from scipy.spatial import cKDTree
@@ -96,6 +97,7 @@ class PrecisionDockingServer(Node):
     def __init__(self):
         super().__init__('precision_docking_server')
         self.cb_group = ReentrantCallbackGroup()
+        self.scan_lock = threading.Lock()
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -113,23 +115,23 @@ class PrecisionDockingServer(Node):
 
         # [PID 제어기 설정]
         self.linear_pid = PID(p=0.5, i=0.0, d=0.02, out_min=0.01, out_max=0.03)
-        self.angular_pid = PID(1.2, 0.1, 0.05, -0.25, 0.25)
-        self.staging_linear_pid = PID(p=0.8, i=0.01, d=0.02, out_min=0.015, out_max=0.15)
+        self.angular_pid = PID(2.0, 0.05, 0.05, out_min=-0.4, out_max=0.4)
+        self.staging_linear_pid = PID(p=4.0, i=0.01, d=0.02, out_min=0.015, out_max=0.15)
         self.staging_angular_pid = PID(p=2.0, i=0.05, d=0.08, out_min=-0.4, out_max=0.4)
         self.get_logger().info('Two-Phase 정밀 도킹 서버 준비 완료 (Idle 상태)')
 
     def _declare_and_update_params(self):
         params = {
-            'charger_width': 0.04,
+            'charger_width': 0.01,
             'wing_length': 0.30, 
             'wing_angle_deg': 45.0,
             'robot_rear_length': 0.20, 
             'roi_x_min': -0.8, 
             'roi_x_max': 0.15,
-            'roi_y_limit': 0.25, 
-            'staging_distance': 0.40, 
+            'roi_y_limit': 0.15, 
+            'staging_distance': 0.30, 
             'final_yaw_tolerance_deg': 1.0,
-            'steering_lock_dist': 0.30, 
+            'steering_lock_dist': 0.20, 
             'odom_frame': 'odom', 
             'base_frame': 'base_footprint'
         }
@@ -142,8 +144,12 @@ class PrecisionDockingServer(Node):
         self.final_yaw_tol_rad = math.radians(self.p['final_yaw_tolerance_deg'])
 
     def _reset_state_variables(self):
-        self.latest_source_pts = self.target_tree = None
-        self.new_scan_available = False
+        # /scan callback과 action callback이 공유하는 데이터는 lock으로 보호
+        with self.scan_lock:
+            self.latest_source_pts = None
+            self.new_scan_available = False
+
+        self.target_tree = None
         self.current_transform = np.identity(3, dtype=np.float32)
         self.filt_rel_yaw = None
         self.filt_dock_dist = None
@@ -171,16 +177,154 @@ class PrecisionDockingServer(Node):
         return np.array(pts, dtype=np.float32)
 
     def scan_callback(self, msg: LaserScan):
+        # 무거운 LaserScan -> XY/ROI 계산은 lock 밖에서 수행한다.
         ranges = np.array(msg.ranges, dtype=np.float32)
         angles = msg.angle_min + np.arange(len(ranges), dtype=np.float32) * msg.angle_increment
 
         valid = (ranges > msg.range_min) & (ranges < msg.range_max) & np.isfinite(ranges)
-        xs, ys = ranges[valid] * np.cos(angles[valid]), ranges[valid] * np.sin(angles[valid])
-        roi = (xs < self.p['roi_x_max']) & (xs > self.p['roi_x_min']) & (np.abs(ys) < self.p['roi_y_limit'])
+        xs = ranges[valid] * np.cos(angles[valid])
+        ys = ranges[valid] * np.sin(angles[valid])
+
+        roi = (
+            (xs < self.p['roi_x_max'])
+            & (xs > self.p['roi_x_min'])
+            & (np.abs(ys) < self.p['roi_y_limit'])
+        )
+
         if np.sum(roi) >= 10:
-            self.latest_source_pts, self.new_scan_available = np.column_stack((xs[roi], ys[roi])).astype(np.float32), True
+            source_pts = np.column_stack((xs[roi], ys[roi])).astype(np.float32)
         else:
-            self.latest_source_pts = None
+            source_pts = None
+
+        # 공유 변수 교체만 아주 짧게 lock으로 보호한다.
+        with self.scan_lock:
+            self.latest_source_pts = source_pts
+            self.new_scan_available = source_pts is not None
+
+    def _take_scan_snapshot(self):
+        """
+        최신 유효 scan을 독립적인 numpy 배열로 복사해서 가져온다.
+
+        lock 안에서는 공유 변수 확인/복사/소비 플래그 변경만 하고,
+        ICP 계산은 반드시 lock 밖에서 수행한다.
+        """
+        with self.scan_lock:
+            if not self.new_scan_available or self.latest_source_pts is None:
+                return None
+
+            source_pts = self.latest_source_pts.copy()
+            self.new_scan_available = False
+
+        return source_pts
+
+    def validate_dock_shape(
+        self,
+        source_pts,
+        T,
+        target_pts,
+        match_threshold=0.035
+    ):
+        """
+        ICP 결과가 실제 V형 도킹 스테이션 형상을
+        충분히 포함하고 있는지 검사한다.
+
+        조건:
+        - 중앙부가 보여야 함
+        - 왼쪽 wing이 보여야 함
+        - 오른쪽 wing이 보여야 함
+        """
+
+        # source LaserScan을 dock model 좌표계로 변환
+        transformed = (
+            source_pts @ T[:2, :2].T
+        ) + T[:2, 2]
+
+        # target model과 최근접점 검색
+        distances, indices = self.target_tree.query(
+            transformed,
+            workers=1
+        )
+
+        valid = distances < match_threshold
+
+        if np.sum(valid) < 10:
+            return False, {
+                'center': 0,
+                'left': 0,
+                'right': 0
+            }
+
+        # 같은 target 점에 여러 scan point가 매칭되는 것을 방지
+        matched_indices = np.unique(
+            indices[valid]
+        )
+
+        matched_target = target_pts[
+            matched_indices
+        ]
+
+        half_w = (
+            self.p['charger_width'] / 2.0
+        )
+
+        # -----------------------------
+        # 중앙부
+        # x ≈ 0
+        # -----------------------------
+        center_mask = (
+            np.abs(
+                matched_target[:, 0]
+            ) < 0.005
+        )
+
+        # -----------------------------
+        # 왼쪽 wing
+        # -----------------------------
+        left_mask = (
+            matched_target[:, 1]
+            > half_w + 0.003
+        )
+
+        # -----------------------------
+        # 오른쪽 wing
+        # -----------------------------
+        right_mask = (
+            matched_target[:, 1]
+            < -half_w - 0.003
+        )
+
+        center_count = int(
+            np.sum(center_mask)
+        )
+
+        left_count = int(
+            np.sum(left_mask)
+        )
+
+        right_count = int(
+            np.sum(right_mask)
+        )
+
+        # 최초 시작값
+        center_ok = center_count >= 3
+        left_ok = left_count >= 4
+        right_ok = right_count >= 4
+
+        shape_valid = (
+            center_ok
+            and left_ok
+            and right_ok
+        )
+
+        return shape_valid, {
+            'center': center_count,
+            'left': left_count,
+            'right': right_count
+        }
+
+    def _discard_pending_scan(self):
+        """현재 대기 중인 scan만 소비 처리한다. 배열 자체는 callback이 관리한다."""
+        with self.scan_lock:
             self.new_scan_available = False
 
     def get_odom_pose(self):
@@ -201,8 +345,14 @@ class PrecisionDockingServer(Node):
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('도킹 액션 수신: Two-Phase 제어기 가동')
-        self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data, callback_group=self.cb_group)
         self._reset_state_variables()
+        self.scan_sub = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.scan_callback,
+            qos_profile_sensor_data,
+            callback_group=self.cb_group
+        )
         for pid in [self.linear_pid, self.angular_pid, self.staging_linear_pid, self.staging_angular_pid]:
             pid.reset()
 
@@ -224,35 +374,52 @@ class PrecisionDockingServer(Node):
 
                 # Phase 1: ICP 스냅샷 후 목표 좌표/각도 확정
                 if state == DockingState.INIT:
-                    if (
-                            not self.new_scan_available
-                            or self.latest_source_pts is None
-                            or odom_x is None
-                        ):
-                            rate.sleep()
-                            continue
+                    if odom_x is None:
+                        rate.sleep()
+                        continue
+
+                    # Lock 안에서 scan 한 장을 복사하고, 이후 INIT ICP는
+                    # 이 snapshot 하나만 사용한다.
+                    source_pts = self._take_scan_snapshot()
+                    if source_pts is None:
+                        rate.sleep()
+                        continue
 
                     req_x = goal_handle.request.target_pose.pose.position.x
                     self.target_dist = req_x if req_x > 0 else self.p['robot_rear_length']
                     active_target_pts = self.generate_v_funnel()
                     self.target_tree = cKDTree(active_target_pts)
-                    self.new_scan_available = False
 
-                    # 원본 그대로의 검증된 초기 평행이동 추정 방식
-                    init_t = np.mean(self.latest_source_pts, axis=0)
+                    # 초기 평행이동 추정도 같은 snapshot을 사용
+                    init_t = np.mean(source_pts, axis=0)
                     init_T = np.identity(3, dtype=np.float32)
                     init_T[:2, 2] = -init_t
 
-                    T, _, match_cnt = icp_2d(
-                        self.latest_source_pts, 
-                        self.target_tree, 
-                        active_target_pts, 
-                        initial_transform=init_T, 
-                        max_iter=40, 
+                    T, fitness, match_cnt = icp_2d(
+                        source_pts,
+                        self.target_tree,
+                        active_target_pts,
+                        initial_transform=init_T,
+                        max_iter=40,
                         search_radius=0.8
                     )
+
+                    shape_valid, support = self.validate_dock_shape(
+                        source_pts,
+                        T,
+                        active_target_pts
+                    )
+
+                    if match_cnt >= 10 and shape_valid:
                     
-                    if match_cnt >= 10:
+                        self.get_logger().info(
+                            f'도크 형상 확인: '
+                            f'L={support["left"]}, '
+                            f'C={support["center"]}, '
+                            f'R={support["right"]}'
+                        )
+
+                        # 기존 도크 위치 계산
                         R, t = T[:2, :2], T[:2, 2]
                         
                         rel_x = float(-R[0, 0] * t[0] - R[1, 0] * t[1])
@@ -276,6 +443,14 @@ class PrecisionDockingServer(Node):
                         self.get_logger().info(f'도크 Odom 추정: x={dock_odom_x:.2f}, y={dock_odom_y:.2f}, 도크방향={math.degrees(dock_odom_yaw):.1f}°')
                         self.get_logger().info(f'경유지 설정: x={target_odom["x"]:.2f}, y={target_odom["y"]:.2f}')
                         state = DockingState.STAGING_TURN
+                    else:
+                        self.get_logger().warn(
+                            f'도크 후보 거부: '
+                            f'match={match_cnt}, '
+                            f'L={support["left"]}, '
+                            f'C={support["center"]}, '
+                            f'R={support["right"]}'
+                        )
 
                 # Phase 2: Odom 기반 경유지 전진 주행 및 후진 자세 회전
                 elif 1 <= state.value <= 3:
@@ -320,7 +495,7 @@ class PrecisionDockingServer(Node):
             err = normalize_angle(tgt['dock_yaw'] - yaw)
             if abs(err) < math.radians(1.0):
                 self.publish_vel(0.0, 0.0)
-                self.new_scan_available = False
+                self._discard_pending_scan()
                 self.current_transform = np.identity(3, dtype=np.float32)
                 self.filt_dock_dist = self.filt_rel_yaw = self.filt_lateral_error = self.prev_dist = self.prev_yaw = self.prev_lateral = None
                 self.settle_timer = 0.5
@@ -354,12 +529,28 @@ class PrecisionDockingServer(Node):
             return state, valid_time
 
         else:
-            if self.new_scan_available and self.latest_source_pts is not None:
-                self.new_scan_available = False
-                s_rad, max_iter = (1.5, 25) if self.filt_dock_dist is None else (0.5, 12)
-                T, fitness, match_cnt = icp_2d(self.latest_source_pts, self.target_tree, active_pts, self.current_transform, max_iter, s_rad)
+            # 매 제어 주기마다 최신 scan 한 장만 snapshot으로 가져온다.
+            # 이후 ICP가 도는 동안 scan_callback이 새 데이터를 써도
+            # 현재 ICP 입력은 변하지 않는다.
+            source_pts = self._take_scan_snapshot()
 
-                if match_cnt >= 10:
+            if source_pts is not None:
+                s_rad, max_iter = (1.5, 25) if self.filt_dock_dist is None else (0.5, 12)
+                T, fitness, match_cnt = icp_2d(
+                    source_pts,
+                    self.target_tree,
+                    active_pts,
+                    self.current_transform,
+                    max_iter,
+                    s_rad
+                )
+                shape_valid, support = self.validate_dock_shape(
+                    source_pts,
+                    T,
+                    active_pts
+                )
+
+                if match_cnt >= 10 and shape_valid:
                     R, t = T[:2, :2], T[:2, 2]
 
                     raw_dist = float(t[0])
@@ -483,9 +674,19 @@ class PrecisionDockingServer(Node):
                 # ---------------------------------
                 else:
                     self.icp_fail_count += 1
+                    self.get_logger().warn(
+                        f'도크 후보 거부: '
+                        f'match={match_cnt}, '
+                        f'L={support["left"]}, '
+                        f'C={support["center"]}, '
+                        f'R={support["right"]}'
+                    )
 
                     if self.icp_fail_count > 3:
-                        self.current_transform = np.identity(3,dtype=np.float32)
+                        self.current_transform = np.identity(
+                            3,
+                            dtype=np.float32
+                        )
 
                         # 다음 ICP를 새 기준으로 재획득
                         self.prev_dist = None
@@ -495,8 +696,14 @@ class PrecisionDockingServer(Node):
                         self.filt_dock_dist = None
                         self.filt_rel_yaw = None
                         self.filt_lateral_error = None
-
                         self.publish_vel(0.0, 0.0)
+                        self.get_logger().warn(
+                            f'도크 후보 거부: '
+                            f'match={match_cnt}, '
+                            f'L={support["left"]}, '
+                            f'C={support["center"]}, '
+                            f'R={support["right"]}'
+                        )
 
                         return DockingState.ALIGN_HEADING, valid_time
             if (curr_time - valid_time).nanoseconds / 1e9 > 1.0:
@@ -630,8 +837,7 @@ class PrecisionDockingServer(Node):
                     )
 
         return state, valid_time
-
-
+        
 def main(args=None):
     rp.init(args=args)
     node = PrecisionDockingServer()
