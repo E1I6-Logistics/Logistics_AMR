@@ -12,8 +12,9 @@ from launch_ros.substitutions import FindPackageShare
 
 
 # Camera yaw [deg, left positive] per robot hostname (2026-10-07), fitted on
-# the N5 floor mark with both wheel edges (robot1 also on N6, after its camera
-# screw was tightened). An explicit camera_yaw:= launch argument still wins. robot3's 1.5 cm offset at N6 is not a camera yaw:
+# the N5 floor mark with the wheel edges and confirmed on N6 for both robots
+# (robot1 after its camera screw was tightened). An explicit camera_yaw:=
+# launch argument still wins. robot3's 1.5 cm offset at N6 is not a camera yaw:
 # 2.1 deg fixed N6 but moved N5 off its mark by the same amount.
 CAMERA_YAW_BY_HOST = {
     "turtlebot1": "4.6",
