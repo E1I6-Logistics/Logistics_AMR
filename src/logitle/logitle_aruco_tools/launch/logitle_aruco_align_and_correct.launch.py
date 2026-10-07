@@ -11,14 +11,13 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-# Camera yaw [deg, left positive] per robot hostname (2026-10-07). robot1 was
-# fitted on the N5/N6 floor marks after its camera screw was tightened;
-# robot3's value carries over its earlier N5 fit (scan_yaw -0.7) to the
-# heading trims. An explicit camera_yaw:= launch argument still wins. robot3's 1.5 cm offset at N6 is not a camera yaw:
+# Camera yaw [deg, left positive] per robot hostname (2026-10-07), fitted on
+# the N5 floor mark with both wheel edges (robot1 also on N6, after its camera
+# screw was tightened). An explicit camera_yaw:= launch argument still wins. robot3's 1.5 cm offset at N6 is not a camera yaw:
 # 2.1 deg fixed N6 but moved N5 off its mark by the same amount.
 CAMERA_YAW_BY_HOST = {
     "turtlebot1": "4.6",
-    "turtlebot3": "0.7",
+    "turtlebot3": "4.1",
 }
 
 # Lidar yaw [deg, left positive] per robot hostname. scan_yaw:= still wins.
