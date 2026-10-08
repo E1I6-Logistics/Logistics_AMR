@@ -115,7 +115,7 @@ class PrecisionDockingServer(Node):
 
         # [PID 제어기 설정]
         self.linear_pid = PID(p=0.1, i=0.0, d=0.02, out_min=0.005, out_max=0.015)
-        self.angular_pid = PID(p=2.0, i=0.0, d=0.10, out_min=-0.30, out_max=0.30)
+        self.angular_pid = PID(p=0.5, i=0.0, d=0.10, out_min=-0.30, out_max=0.30)
         self.staging_linear_pid = PID(p=4.0, i=0.01, d=0.02, out_min=0.015, out_max=0.15)
         self.staging_angular_pid = PID(p=2.0, i=0.05, d=0.08, out_min=-0.4, out_max=0.4)
         self.get_logger().info('Two-Phase 정밀 도킹 서버 준비 완료 (Idle 상태)')
@@ -129,7 +129,7 @@ class PrecisionDockingServer(Node):
             'robot_rear_length': 0.10, 
             'roi_x_min': -1.2, 
             'roi_x_max': 0.15,
-            'roi_y_limit': 0.15, 
+            'roi_y_limit': 0.20, 
             'staging_distance': 0.45, 
             'steering_lock_dist': 0.15, 
             'reverse_lateral_gain': 1.5,
