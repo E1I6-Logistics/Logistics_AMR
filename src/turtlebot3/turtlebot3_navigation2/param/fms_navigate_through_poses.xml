@@ -12,7 +12,7 @@
         <RateController hz="3.0">    <!-- default 0.333 -->
           <RecoveryNode number_of_retries="1" name="ComputePathThroughPoses">
             <ReactiveSequence>
-              <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.05"/>
+              <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.08"/>
               <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}" server_timeout="1000"/>
             </ReactiveSequence>
             <Sequence>
