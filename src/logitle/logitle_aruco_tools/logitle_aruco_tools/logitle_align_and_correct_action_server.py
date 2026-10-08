@@ -397,7 +397,8 @@ class AlignAndCorrectActionServer(Node):
         self.latest_odom = None
         self.scan_sub = None
         self.latest_scan = None
-        # Pair minus single-marker lateral, per marker, within one goal.
+        # Pair minus single-marker lateral, per marker. Kept across goals: a
+        # goal that starts close to the wall may never see both markers.
         self.wall_single_offsets = {}
         self.last_wall_heading = None
         if args.pose_source == "camera":
@@ -896,7 +897,6 @@ class AlignAndCorrectActionServer(Node):
         pair = params["wall_pair"]
         args = self.args
         started = time.time()
-        self.wall_single_offsets = {}
         self.last_wall_heading = None
         wall_failed_since = None
         centering = 0
@@ -1949,7 +1949,7 @@ def parse_args():
     # Single lidar scans scatter about +-0.4deg in heading on robot1.
     parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=0.5)
     parser.add_argument("--pair-lateral-tolerance", type=float, default=0.003)
-    parser.add_argument("--pair-distance-tolerance", type=float, default=0.005)
+    parser.add_argument("--pair-distance-tolerance", type=float, default=0.003)
     # Bounds for one move: turn angle and drive distance.
     parser.add_argument("--pair-max-turn-deg", type=float, default=12.0)
     parser.add_argument("--pair-max-drive", type=float, default=0.03)
