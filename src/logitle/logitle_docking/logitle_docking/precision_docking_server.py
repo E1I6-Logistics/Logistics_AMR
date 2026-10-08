@@ -128,7 +128,7 @@ class PrecisionDockingServer(Node):
             'wing_angle_deg': 22.5,
             'robot_rear_length': 0.10, 
             'roi_x_min': -1.2, 
-            'roi_x_max': 0.15,s
+            'roi_x_max': 0.15,
             'roi_y_limit': 0.15, 
             'staging_distance': 0.45, 
             'steering_lock_dist': 0.15, 
