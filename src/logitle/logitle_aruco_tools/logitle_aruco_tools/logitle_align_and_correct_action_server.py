@@ -153,6 +153,14 @@ WALL_PAIR_TARGETS = {
         "center_offset": 0.015,
         "wall_distance": 0.425,
     },
+    # N4: same reason as N3. Tape (2026-10-08): floor mark 2.0 cm right of
+    # ID26, 40.5 cm from the wall; the robot stops 2 cm behind it on request.
+    "N4": {
+        "left_marker": 26,
+        "right_marker": None,
+        "center_offset": 0.020,
+        "wall_distance": 0.425,
+    },
 }
 
 
