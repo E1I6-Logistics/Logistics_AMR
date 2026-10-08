@@ -47,7 +47,7 @@ DISTANCE_TRIMS_BY_HOST = {
 }
 LATERAL_TRIMS_BY_HOST = {
     "turtlebot1": "N3:0.031,N4:0.020,N5:0.035,N6:0.030",
-    "turtlebot3": "N3:0.010,N4:0.012,N5:0.007",
+    "turtlebot3": "N3:0.010,N4:0.012,N5:0.012",
 }
 
 
