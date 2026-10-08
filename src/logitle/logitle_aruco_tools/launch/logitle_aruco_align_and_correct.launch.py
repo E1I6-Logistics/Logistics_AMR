@@ -18,6 +18,7 @@ from launch_ros.substitutions import FindPackageShare
 # 2.1 deg fixed N6 but moved N5 off its mark by the same amount.
 CAMERA_YAW_BY_HOST = {
     "turtlebot1": "4.6",
+    "turtlebot2": "0.6",
     "turtlebot3": "4.1",
 }
 
@@ -36,6 +37,12 @@ HEADING_TRIMS_BY_HOST = {
 # Wall alignment lateral trims per robot hostname: the lateral [m, robot's
 # right +] the robot reads while it sits on the node's floor mark, measured
 # from both wheel edges. pair_lateral_trims:= still wins.
+# Wall alignment stop distance trims per robot hostname [m, + = further from
+# the wall], for robots that stop short of where the team wants them.
+# pair_distance_trims:= still wins.
+DISTANCE_TRIMS_BY_HOST = {
+    "turtlebot2": "N4:0.005,N5:0.005",
+}
 LATERAL_TRIMS_BY_HOST = {
     "turtlebot1": "N3:0.031,N4:0.015",
 }
@@ -118,6 +125,9 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "pair_heading_trims", default_value=HEADING_TRIMS_BY_HOST.get(socket.gethostname(), "none")
+        ),
+        DeclareLaunchArgument(
+            "pair_distance_trims", default_value=DISTANCE_TRIMS_BY_HOST.get(socket.gethostname(), "none")
         ),
         DeclareLaunchArgument("pose_source", default_value="camera"),
         DeclareLaunchArgument("approx_camera_info", default_value="false"),
@@ -262,6 +272,8 @@ def generate_launch_description():
                 LaunchConfiguration("pair_lateral_trims"),
                 "--pair-heading-trims",
                 LaunchConfiguration("pair_heading_trims"),
+                "--pair-distance-trims",
+                LaunchConfiguration("pair_distance_trims"),
                 "--map-frame",
                 LaunchConfiguration("map_frame"),
                 "--initialpose-topic",

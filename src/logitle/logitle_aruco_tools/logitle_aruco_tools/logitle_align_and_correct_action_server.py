@@ -94,6 +94,18 @@ ALIGN_TARGET_PRESETS = {
         "check_yaw": True,
         "expected_base_yaw_deg": 0.0,
     },
+    # ID23 (added 2026-10-08, 13.3 cm left of ID26) also selects N4, so a goal
+    # with either marker runs the two-marker wall alignment. target_x/z only
+    # matter when --wall-align is off: derived from ID26 shifted by the
+    # spacing, not measured.
+    23: {
+        "node": "N4",
+        "target_x": -0.142,
+        "target_z": 0.385,
+        "z_tolerance": 0.010,
+        "check_yaw": True,
+        "expected_base_yaw_deg": 0.0,
+    },
     27: {
         "node": "N3",
         "target_x": 0.001,
@@ -153,13 +165,15 @@ WALL_PAIR_TARGETS = {
         "center_offset": 0.015,
         "wall_distance": 0.425,
     },
-    # N4: same reason as N3. Tape (2026-10-08): floor mark 2.0 cm right of
-    # ID26, 40.5 cm from the wall; the robot stops 2 cm behind it on request.
+    # N4: same reason as N3. The robot arm covers ID26 from the right, so ID23
+    # was added 13.3 cm to its left (2026-10-08). Tape: floor mark 2.0 cm right
+    # of ID26, 40.5 cm from the wall; the robot stops 2 cm behind it on request.
     "N4": {
-        "left_marker": 26,
-        "right_marker": None,
-        "center_offset": 0.020,
+        "left_marker": 23,
+        "right_marker": 26,
+        "center_offset": 0.153,
         "wall_distance": 0.425,
+        "marker_spacing": 0.133,
     },
 }
 
@@ -622,9 +636,12 @@ class AlignAndCorrectActionServer(Node):
             map_spacing = float(np.linalg.norm(np.asarray(right.position[:2]) - np.asarray(left.position[:2])))
         lateral_trim = parse_node_trims(self.args.pair_lateral_trims).get(node, 0.0)
         heading_trim = math.radians(parse_node_trims(self.args.pair_heading_trims).get(node, 0.0))
+        distance_trim = parse_node_trims(self.args.pair_distance_trims).get(node, 0.0)
+        target = dict({"marker_spacing": map_spacing}, **config)
+        # Per-robot stop distance offset (m, + = further from the wall).
+        target["wall_distance"] = config["wall_distance"] + distance_trim
         return dict(
-            {"marker_spacing": map_spacing},
-            **config,
+            target,
             node=node,
             lateral_trim=lateral_trim,
             heading_trim=heading_trim,
@@ -1895,6 +1912,8 @@ def parse_args():
     parser.add_argument("--max-start-x-error", type=float, default=0.15)
     # Lidar heading read while square to the wall, per node: "N5:-1.6" [deg].
     parser.add_argument("--pair-heading-trims", default="none")
+    # Stop distance offset per node: "N5:0.005" [m, + = further from the wall].
+    parser.add_argument("--pair-distance-trims", default="none")
     parser.add_argument("--pair-min-scans", type=int, default=3)
     # How long lidar wall fit failures are retried before the goal fails [s].
     parser.add_argument("--pair-wall-retry-sec", type=float, default=5.0)
