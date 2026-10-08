@@ -31,7 +31,7 @@ SCAN_YAW_BY_HOST = {}
 # the robot reads at each node while it is square to the wall, from the
 # wheel-to-wall distances (2026-10-07). pair_heading_trims:= still wins.
 HEADING_TRIMS_BY_HOST = {
-    "turtlebot1": "N4:-1.2,N5:-1.6,N6:-0.2",
+    "turtlebot1": "N4:-0.1,N5:-1.6,N6:-0.2",
     "turtlebot3": "N5:-0.7",
 }
 # Wall alignment lateral trims per robot hostname: the lateral [m, robot's
@@ -41,11 +41,12 @@ HEADING_TRIMS_BY_HOST = {
 # the wall], for robots that stop short of where the team wants them.
 # pair_distance_trims:= still wins.
 DISTANCE_TRIMS_BY_HOST = {
+    "turtlebot1": "N4:0.011",
     "turtlebot2": "N4:0.005,N5:0.005",
     "turtlebot3": "N3:0.005,N4:0.011",
 }
 LATERAL_TRIMS_BY_HOST = {
-    "turtlebot1": "N3:0.031,N4:0.015",
+    "turtlebot1": "N3:0.031,N4:0.020,N5:0.035,N6:0.035",
     "turtlebot3": "N3:0.010,N4:0.012",
 }
 
