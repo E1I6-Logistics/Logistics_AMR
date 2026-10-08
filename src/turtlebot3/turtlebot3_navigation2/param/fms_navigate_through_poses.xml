@@ -1,24 +1,53 @@
 
 <!--
-  This Behavior Tree replans the global path periodically at 1 Hz through an array of poses continuously
+  This Behavior Tree replans the global path periodically at 3 Hz through an array of poses continuously
    and it also has recovery actions specific to planning / control as well as general system issues.
 -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
-        <PlannerSelector selected_planner="{selected_planner}" default_planner="ThetaStar" topic_name="planner_selector"/>
-        <RateController hz="3.0">    <!-- default 0.333 -->
-          <RecoveryNode number_of_retries="1" name="ComputePathThroughPoses">
-            <ReactiveSequence>
-              <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.06"/>
-              <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}" server_timeout="1000"/>
-            </ReactiveSequence>
+        <ControllerSelector
+          selected_controller="{selected_controller}"
+          default_controller="FollowPath"
+          topic_name="controller_selector"/>
+
+        <PlannerSelector
+          selected_planner="{selected_planner}"
+          default_planner="ThetaStar"
+          topic_name="planner_selector"/>
+
+        <!-- 경유지 확인: 10Hz -->
+        <RateController hz="10.0">
+          <RemovePassedGoals
+            input_goals="{goals}"
+            output_goals="{goals}"
+            radius="0.06"
+            global_frame="map"
+            robot_base_frame="base_footprint"/>
+        </RateController>
+
+        <!-- ThetaStar 경로 재계산: 3Hz -->
+        <RateController hz="3.0">
+          <RecoveryNode
+            number_of_retries="1"
+            name="ComputePathThroughPoses">
+
+            <ComputePathThroughPoses
+              goals="{goals}"
+              path="{path}"
+              planner_id="{selected_planner}"
+              error_code_id="{compute_path_error_code}"
+              server_timeout="1000"/>
+
             <Sequence>
-              <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
-              <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+              <WouldAPlannerRecoveryHelp
+                error_code="{compute_path_error_code}"/>
+
+              <ClearEntireCostmap
+                service_name="global_costmap/clear_entirely_global_costmap"/>
             </Sequence>
+
           </RecoveryNode>
         </RateController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
