@@ -109,20 +109,27 @@ controller_server:
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
+
+    # progress_checker:
+    #   plugin: "nav2_controller::SimpleProgressChecker"
+    #   required_movement_radius: 0.1
+    #   movement_time_allowance: 10.0
     progress_checker:
-      plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.1
+      plugin: "nav2_controller::PoseProgressChecker"
+      required_movement_radius: 0.07
+      required_movement_angle: 0.20
       movement_time_allowance: 10.0
+
     goal_checker:
-      stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: true
       xy_goal_tolerance: 0.05
       yaw_goal_tolerance: 0.08
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       
       # 1. 일정한 선속도 유지 (감속 트리거 전체 해제)
-      desired_linear_vel: 0.12
+      desired_linear_vel: 0.09
 
       # ==========================================
       # # RPP 1.3.13 이 사용하지 않는 파라미터 아래 4개
@@ -135,31 +142,26 @@ controller_server:
       # use_interpolation: true
       # ==========================================
 
-      lookahead_dist: 0.15      ## 0.3
+      lookahead_dist: 0.10
       use_velocity_scaled_lookahead_dist: false
-      # min_lookahead_dist: 0.15
-      # max_lookahead_dist: 0.30
-      # lookahead_time: 1.0 
-      
-      use_regulated_linear_velocity_scaling: true
-      regulated_linear_scaling_min_radius: 0.9       # 이 반경보다 급한 회전에서 감속
-      regulated_linear_scaling_min_speed: 0.10       # 급커브에서도 여기 아래로는 감속하지 않음
 
+      approach_velocity_scaling_dist: 0.35
+      min_approach_linear_velocity: 0.05
+
+      use_regulated_linear_velocity_scaling: false
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.10
 
       use_cost_regulated_linear_velocity_scaling: false
-      # use_approach_linear_velocity_scaling: true   # 목표 지점 접근 시 감속 끄기
 
-      # 2. 일정한 제자리 회전 제어
       use_rotate_to_heading: true
-      rotate_to_heading_min_angle: 0.35         # 약 20도 이상 헤딩 오차 시 제자리 회전
-      rotate_to_heading_angular_vel:  0.5      # 회전 각속도 고정
-      max_angular_accel: 1.5                    # 가속도 상한을 낮춰 일정한 템포 유지
+      rotate_to_heading_min_angle: 0.35
+      rotate_to_heading_angular_vel: 0.40
+      max_angular_accel: 1.5
 
-      # 3. TF 허용치 및 충돌 감지
       transform_tolerance: 0.2
       use_collision_detection: true
       max_robot_pose_search_dist: 0.5
-      # use_interpolation: true
 
     enable_stamped_cmd_vel: true
 
