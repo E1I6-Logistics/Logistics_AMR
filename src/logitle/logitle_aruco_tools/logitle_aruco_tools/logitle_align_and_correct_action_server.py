@@ -399,6 +399,7 @@ class AlignAndCorrectActionServer(Node):
         self.latest_scan = None
         # Pair minus single-marker lateral, per marker, within one goal.
         self.wall_single_offsets = {}
+        self.last_wall_heading = None
         if args.pose_source == "camera":
             dictionary_id = ARUCO_DICTS[args.dictionary]
             self.dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
@@ -896,12 +897,14 @@ class AlignAndCorrectActionServer(Node):
         args = self.args
         started = time.time()
         self.wall_single_offsets = {}
+        self.last_wall_heading = None
         wall_failed_since = None
         centering = 0
         samples = []
         stopped = False
         yaw_tolerance = math.radians(args.pair_yaw_tolerance_deg)
-        max_turn = math.radians(args.pair_max_turn_deg)
+        max_turn = math.radians(args.pair_coarse_max_turn_deg)
+        prealigned = False
         final = {"x": 0.0, "z": 0.0, "lateral": 0.0, "distance": 0.0, "heading": 0.0}
 
         def result(success, marker_lost, message):
@@ -936,6 +939,17 @@ class AlignAndCorrectActionServer(Node):
             if measured is None:
                 if error == "no_marker":
                     feedback("waiting_for_marker", visible=False)
+                    # The camera takes several seconds to start on a goal;
+                    # square up to the wall with the lidar meanwhile.
+                    heading = self.last_wall_heading
+                    if not prealigned and heading is not None and abs(heading) > yaw_tolerance:
+                        prealigned = True
+                        self.get_logger().info(
+                            f"Wall prealign: heading={math.degrees(heading):+.1f}deg while waiting for markers"
+                        )
+                        ok, message = self.odom_rotate(goal_handle, clamp(-heading, -max_turn, max_turn))
+                        if not ok:
+                            return result(False, False, message)
                     continue
                 if error == "canceled":
                     continue
@@ -976,7 +990,10 @@ class AlignAndCorrectActionServer(Node):
                 and abs(lateral) <= args.pair_lateral_tolerance * args.pair_near_factor
                 and abs(distance_error) <= args.pair_distance_tolerance * args.pair_near_factor
             )
-            if (in_tolerance or near) and len(samples) < args.pair_stable_count:
+            # Finishing takes pair_stable_count readings; moving again only
+            # needs two, so one stray reading does not trigger a move.
+            needed = args.pair_stable_count if in_tolerance else min(2, args.pair_stable_count)
+            if (in_tolerance or near) and len(samples) < needed:
                 feedback("stable_check")
                 time.sleep(args.stable_sec)
                 continue
@@ -1001,11 +1018,13 @@ class AlignAndCorrectActionServer(Node):
                 )
             samples = []
 
-            if abs(heading) > yaw_tolerance:
+            lateral_off = abs(lateral) > args.pair_lateral_tolerance
+            if abs(heading) > yaw_tolerance and not lateral_off:
                 turn = clamp(-heading, -max_turn, max_turn)
                 feedback("align_yaw", angular_z=turn)
                 ok, message = self.odom_rotate(goal_handle, turn)
-            elif abs(lateral) > args.pair_lateral_tolerance:
+            elif lateral_off:
+                # The center step's first turn also takes out the heading.
                 if centering >= args.pair_max_centering:
                     return result(
                         False,
@@ -1019,7 +1038,7 @@ class AlignAndCorrectActionServer(Node):
                     distance_error + pair["wall_distance"], params["z_min_stop"]
                 )
             else:
-                drive = clamp(distance_error, -args.pair_max_drive, args.pair_max_drive)
+                drive = clamp(distance_error, -args.pair_max_approach, args.pair_max_approach)
                 feedback("approach_distance", linear_x=drive)
                 ok, message = self.odom_drive(goal_handle, drive)
 
@@ -1074,7 +1093,9 @@ class AlignAndCorrectActionServer(Node):
             turn, drive = forward
         else:
             direction = -1.0
-            turn = max_turn
+            # Prefer the full drive at a small angle over a short drive at a
+            # wide one: odometry drive errors then barely move the lateral.
+            turn = min(max_turn, max(math.radians(1.0), math.asin(min(1.0, abs(lateral) / max_drive))))
             drive = min(max_drive, abs(lateral) / math.sin(turn))
             # Drive straight back in after turning square, covering the
             # distance error too, so one step fixes both without another
@@ -1231,6 +1252,7 @@ class AlignAndCorrectActionServer(Node):
             along = ray_wall_along(camera_xy, np.mean(np.asarray(directions), axis=0), k, b)
             if along is not None:
                 hits[marker_id] = along
+        self.last_wall_heading = heading - pair["heading_trim"]
         if not hits:
             return None, "no_marker"
         left_id = pair["left_marker"]
@@ -1929,16 +1951,18 @@ def parse_args():
     parser.add_argument("--pair-lateral-tolerance", type=float, default=0.003)
     parser.add_argument("--pair-distance-tolerance", type=float, default=0.005)
     # Bounds for one move: turn angle and drive distance.
-    parser.add_argument("--pair-max-turn-deg", type=float, default=8.0)
+    parser.add_argument("--pair-max-turn-deg", type=float, default=12.0)
     parser.add_argument("--pair-max-drive", type=float, default=0.03)
     # Lateral offsets above pair-coarse-lateral, or approaches longer than
     # pair-max-drive, use the wider coarse limits.
-    parser.add_argument("--pair-coarse-lateral", type=float, default=0.02)
+    parser.add_argument("--pair-coarse-lateral", type=float, default=0.01)
     parser.add_argument("--pair-coarse-max-turn-deg", type=float, default=20.0)
-    parser.add_argument("--pair-coarse-max-drive", type=float, default=0.06)
+    parser.add_argument("--pair-coarse-max-drive", type=float, default=0.10)
+    # A straight approach (lateral already in tolerance) may cover this much at once.
+    parser.add_argument("--pair-max-approach", type=float, default=0.15)
     parser.add_argument("--pair-wall-margin", type=float, default=0.02)
     # A forward center step may pass the target distance by at most this much.
-    parser.add_argument("--pair-max-overshoot", type=float, default=0.010)
+    parser.add_argument("--pair-max-overshoot", type=float, default=0.003)
     parser.add_argument("--pair-max-centering", type=int, default=10)
     # Consecutive in-tolerance measurements needed to finish.
     parser.add_argument("--pair-stable-count", type=int, default=3)
