@@ -42,11 +42,11 @@ HEADING_TRIMS_BY_HOST = {
 # pair_distance_trims:= still wins.
 DISTANCE_TRIMS_BY_HOST = {
     "turtlebot2": "N4:0.005,N5:0.005",
-    "turtlebot3": "N4:0.011",
+    "turtlebot3": "N3:0.005,N4:0.011",
 }
 LATERAL_TRIMS_BY_HOST = {
     "turtlebot1": "N3:0.031,N4:0.015",
-    "turtlebot3": "N4:0.012",
+    "turtlebot3": "N3:0.010,N4:0.012",
 }
 
 
