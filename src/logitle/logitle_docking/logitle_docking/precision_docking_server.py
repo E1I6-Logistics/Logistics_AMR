@@ -123,16 +123,16 @@ class PrecisionDockingServer(Node):
 
     def _declare_and_update_params(self):
         params = {
-            'charger_width': 0.14,
+            'charger_width': 0.145,
             'wing_length': 0.10, 
             'wing_angle_deg': 22.5,
-            'robot_rear_length': 0.08, 
+            'robot_rear_length': 0.10, 
             'roi_x_min': -1.2, 
-            'roi_x_max': 0.15,
+            'roi_x_max': 0.15,s
             'roi_y_limit': 0.15, 
             'staging_distance': 0.45, 
-            'steering_lock_dist': 0.20, 
-            'reverse_lateral_gain': 1.8,
+            'steering_lock_dist': 0.15, 
+            'reverse_lateral_gain': 1.5,
             'reverse_max_target_yaw_deg': 6.0,
             'final_blind_start_dist': 0.20,
             'final_reverse_speed': 0.015,
