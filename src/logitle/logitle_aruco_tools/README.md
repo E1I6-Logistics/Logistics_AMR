@@ -287,16 +287,20 @@ x/z preset 정렬 대신 벽 정렬을 사용합니다. 마커 하나의 x/z만 
   사이를 보간하고, 하나만 보이면 그 마커로 계산합니다(두 마커가 보였을 때의 차이만큼 보정).
   벽 직선은 RANSAC으로 피팅해 로봇팔, 다리 같은 앞 물체를 제외합니다. 마커 tvec의 거리값은 거리에 따라 오차가
   커져서 사용하지 않습니다.
-- 동작: 정지 후 측정하고, 한 번에 하나만 움직입니다. 방향 정렬(최대 8°), 중심 보정(회전,
-  직진, 원래 방향으로 회전), 거리 보정(3cm 이내) 중 하나를 수행합니다. 중심 보정은 좌우 2cm 초과나
-  먼 거리에서 20°/6cm, 그 외 8°/3cm 한도로 목표 지점을 향해 움직이고, 목표 거리를 2cm 넘게
-  지나칠 때는 후진합니다. 오차가 방향 0.3°, 좌우 3mm, 거리 5mm 안에 세 번 연속 들어오면 완료합니다.
+- 동작: 정지 후 측정하고, 한 번에 하나만 움직입니다. 카메라가 켜지는 동안 라이다로 먼저 벽과
+  평행하게 돌립니다. 그다음 방향 정렬, 중심 보정(회전 → 직진 → 원래 방향으로 회전, 방향 오차도
+  첫 회전에서 함께 보정), 거리 보정(15cm 이내) 중 하나를 수행합니다. 중심 보정은 좌우 1cm 이하면
+  12°·3cm, 그보다 크거나 거리가 3cm 넘게 남으면 20°·10cm까지 움직입니다. 목표보다 뒤에 있으면
+  후진하지 않고 전진하며, 좌우만 맞출 때는 비스듬히 후진한 뒤 곧게 다시 들어옵니다.
+- 완료: 목표 근처(허용 오차의 2배 안)에서는 최대 3번 다시 재서 중간값으로 판단하고, 중간값이
+  방향 0.5°, 좌우 3mm, 거리 5mm 안이면 완료합니다.
 - 회전/직진은 odom 속도로 D 제어하고, odom 지연(0.1s)을 감안해 미리 멈춥니다.
 - 목표는 바닥 노드 표시 실측값입니다(2026-10-07). N5는 ID24 중심에서 오른쪽 18.0cm, 벽까지
   40.0cm이고, N6은 ID25 중심에서 오른쪽 17.5cm, 벽까지 41.0cm입니다.
 - 정렬 후 pose corrector 대신 같은 측정값으로 `/initialpose`를 직접 발행합니다.
 - 끄려면 align 서버에 `--wall-align false`를 줍니다. 한 번에 움직이는 한도는
-  `--pair-max-turn-deg`, `--pair-max-drive`로 조절합니다.
+  `--pair-max-turn-deg`, `--pair-max-drive`, `--pair-coarse-max-turn-deg`, `--pair-coarse-max-drive`,
+  `--pair-max-approach`로 조절합니다.
 - 로봇 앞 0.25~0.60m, 좌우 ±0.35m에 벽이 라이다로 보여야 합니다. 벽 직선 피팅이 안 되면
   정렬을 바로 실패로 끝냅니다. 마커가 하나도 안 보이면 정지한 채로 기다립니다.
 
@@ -306,17 +310,19 @@ x/z preset 정렬 대신 벽 정렬을 사용합니다. 마커 하나의 x/z만 
 | --- | --- | --- |
 | `--wall-align` | true | N5/N6 벽 정렬 사용 (false면 x/z preset 정렬) |
 | `--wall-initialpose` | true | 벽 정렬 측정값으로 `/initialpose` 발행 (pose corrector 미사용) |
-| `--pair-yaw-tolerance-deg` | 0.3 | 방향 허용 오차 |
+| `--pair-yaw-tolerance-deg` | 0.5 | 방향 허용 오차 |
 | `--scan-yaw` | 0.0 | 라이다 장착 yaw [deg, 왼쪽 +] (launch는 hostname별 기본값) |
 | `--pair-lateral-tolerance` | 0.003 | 좌우 허용 오차 [m] |
 | `--pair-distance-tolerance` | 0.005 | 거리 허용 오차 [m] |
-| `--pair-stable-count` | 3 | 완료에 필요한 연속 허용 범위 측정 횟수 |
-| `--pair-max-turn-deg` | 8.0 | 한 번 회전 한도 (미세) |
+| `--pair-stable-count` | 3 | 완료에 필요한 측정 횟수 (중간값으로 판단) |
+| `--pair-near-factor` | 2.0 | 허용 오차의 이 배수 안이면 움직이기 전에 다시 측정 |
+| `--pair-max-turn-deg` | 12.0 | 한 번 회전 한도 (미세) |
 | `--pair-max-drive` | 0.03 | 한 번 직진 한도 [m] (미세) |
-| `--pair-coarse-lateral` | 0.02 | 이보다 좌우 오차가 크면 넓은 한도 사용 [m] |
+| `--pair-coarse-lateral` | 0.01 | 이보다 좌우 오차가 크면 넓은 한도 사용 [m] |
 | `--pair-coarse-max-turn-deg` | 20.0 | 넓은 한도 회전 |
-| `--pair-coarse-max-drive` | 0.06 | 넓은 한도 직진 [m] |
-| `--pair-max-overshoot` | 0.02 | 전진 중심 보정이 목표 거리를 지나칠 수 있는 한도 [m] |
+| `--pair-coarse-max-drive` | 0.10 | 넓은 한도 직진 [m] |
+| `--pair-max-approach` | 0.15 | 좌우가 맞았을 때 한 번에 다가가는 거리 한도 [m] |
+| `--pair-max-overshoot` | 0.003 | 전진 중심 보정이 목표 거리를 지나칠 수 있는 한도 [m] |
 | `--pair-max-centering` | 10 | 중심 보정 최대 횟수 |
 | `--pair-timeout-sec` | 90 | 벽 정렬 제한 시간 |
 | `--maneuver-distance-tolerance` | 0.001 | odom 직진 정지 허용 오차 [m] |
