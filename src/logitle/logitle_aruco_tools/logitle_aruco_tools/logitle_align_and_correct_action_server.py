@@ -397,7 +397,8 @@ class AlignAndCorrectActionServer(Node):
         self.latest_odom = None
         self.scan_sub = None
         self.latest_scan = None
-        # Pair minus single-marker lateral, per marker, within one goal.
+        # Pair minus single-marker lateral, per marker. Kept across goals: a
+        # goal that starts close to the wall may never see both markers.
         self.wall_single_offsets = {}
         self.last_wall_heading = None
         if args.pose_source == "camera":
@@ -896,7 +897,6 @@ class AlignAndCorrectActionServer(Node):
         pair = params["wall_pair"]
         args = self.args
         started = time.time()
-        self.wall_single_offsets = {}
         self.last_wall_heading = None
         wall_failed_since = None
         centering = 0
