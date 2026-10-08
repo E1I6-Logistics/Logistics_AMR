@@ -66,6 +66,15 @@ markers:
     size: 0.0400
     note: "logitle_route 4번 좌표 기준 오른쪽 벽 방향(map +X) 43.0cm / 아래 변 높이 19.5cm + 4.0cm marker size/2"
 
+  - id: 23
+    x: 2.1602067280
+    y: 0.5458017724
+    z: 0.215
+    yaw_deg: 180.0
+    roll_deg: 0.0
+    size: 0.0400
+    note: "ID26 왼쪽(map +Y), 2026-10-08 추가 / ID23 왼쪽 변에서 ID26 오른쪽 변까지 17.3cm - marker size 4.0cm = 중심 간 13.3cm / 높이는 ID26과 같음"
+
   - id: 27
     x: 2.1420175314
     y: 0.1040047556
