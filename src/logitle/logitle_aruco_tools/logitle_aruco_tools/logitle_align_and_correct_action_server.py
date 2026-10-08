@@ -990,7 +990,10 @@ class AlignAndCorrectActionServer(Node):
                 and abs(lateral) <= args.pair_lateral_tolerance * args.pair_near_factor
                 and abs(distance_error) <= args.pair_distance_tolerance * args.pair_near_factor
             )
-            if (in_tolerance or near) and len(samples) < args.pair_stable_count:
+            # Finishing takes pair_stable_count readings; moving again only
+            # needs two, so one stray reading does not trigger a move.
+            needed = args.pair_stable_count if in_tolerance else min(2, args.pair_stable_count)
+            if (in_tolerance or near) and len(samples) < needed:
                 feedback("stable_check")
                 time.sleep(args.stable_sec)
                 continue
@@ -1090,7 +1093,9 @@ class AlignAndCorrectActionServer(Node):
             turn, drive = forward
         else:
             direction = -1.0
-            turn = max_turn
+            # Prefer the full drive at a small angle over a short drive at a
+            # wide one: odometry drive errors then barely move the lateral.
+            turn = min(max_turn, max(math.radians(1.0), math.asin(min(1.0, abs(lateral) / max_drive))))
             drive = min(max_drive, abs(lateral) / math.sin(turn))
             # Drive straight back in after turning square, covering the
             # distance error too, so one step fixes both without another
@@ -1957,7 +1962,7 @@ def parse_args():
     parser.add_argument("--pair-max-approach", type=float, default=0.15)
     parser.add_argument("--pair-wall-margin", type=float, default=0.02)
     # A forward center step may pass the target distance by at most this much.
-    parser.add_argument("--pair-max-overshoot", type=float, default=0.010)
+    parser.add_argument("--pair-max-overshoot", type=float, default=0.003)
     parser.add_argument("--pair-max-centering", type=int, default=10)
     # Consecutive in-tolerance measurements needed to finish.
     parser.add_argument("--pair-stable-count", type=int, default=3)
