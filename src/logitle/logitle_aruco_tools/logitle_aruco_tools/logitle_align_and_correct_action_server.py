@@ -1949,7 +1949,7 @@ def parse_args():
     # Single lidar scans scatter about +-0.4deg in heading on robot1.
     parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=0.5)
     parser.add_argument("--pair-lateral-tolerance", type=float, default=0.003)
-    parser.add_argument("--pair-distance-tolerance", type=float, default=0.005)
+    parser.add_argument("--pair-distance-tolerance", type=float, default=0.003)
     # Bounds for one move: turn angle and drive distance.
     parser.add_argument("--pair-max-turn-deg", type=float, default=12.0)
     parser.add_argument("--pair-max-drive", type=float, default=0.03)
