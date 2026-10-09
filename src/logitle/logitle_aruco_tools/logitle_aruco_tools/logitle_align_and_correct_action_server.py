@@ -397,8 +397,15 @@ class AlignAndCorrectActionServer(Node):
         self.latest_odom = None
         self.scan_sub = None
         self.latest_scan = None
-        # Pair minus single-marker lateral, per marker, within one goal.
+        # Odometry/scan/camera subscriptions are created on the first goal and
+        # then kept: destroying them from a goal thread while the executor
+        # waits on them crashed robot3 with InvalidHandle (2026-10-09).
+        # Callbacks drop messages while no goal is active.
+        self.wall_inputs_active = False
+        # Pair minus single-marker lateral, per marker. Kept across goals: a
+        # goal that starts close to the wall may never see both markers.
         self.wall_single_offsets = {}
+        self.last_wall_heading = None
         if args.pose_source == "camera":
             dictionary_id = ARUCO_DICTS[args.dictionary]
             self.dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
@@ -884,18 +891,25 @@ class AlignAndCorrectActionServer(Node):
         Each step stops, measures (lidar wall line for heading and distance,
         marker bearings for the lateral offset), then makes one bounded move:
         ALIGN_YAW, CENTER (turn, short drive, turn back) or APPROACH.
-        pair_stable_count consecutive in-tolerance measurements finish the alignment.
+
+        Decisions use the median of the measurements taken since the last
+        move. Near the target (within pair_near_factor times the tolerances)
+        the robot measures again instead of moving on one reading, since a
+        single reading scatters about as much as the tolerance (worse when
+        Nav2 and zenoh load the CPU). The median of pair_stable_count
+        measurements in tolerance finishes the alignment.
         """
         pair = params["wall_pair"]
         args = self.args
         started = time.time()
-        self.wall_single_offsets = {}
+        self.last_wall_heading = None
         wall_failed_since = None
         centering = 0
-        stable_hits = 0
+        samples = []
         stopped = False
         yaw_tolerance = math.radians(args.pair_yaw_tolerance_deg)
-        max_turn = math.radians(args.pair_max_turn_deg)
+        max_turn = math.radians(args.pair_coarse_max_turn_deg)
+        prealigned = False
         final = {"x": 0.0, "z": 0.0, "lateral": 0.0, "distance": 0.0, "heading": 0.0}
 
         def result(success, marker_lost, message):
@@ -928,9 +942,19 @@ class AlignAndCorrectActionServer(Node):
                 stopped = True
             measured, error = self.measure_wall(goal_handle, pair)
             if measured is None:
-                stable_hits = 0
                 if error == "no_marker":
                     feedback("waiting_for_marker", visible=False)
+                    # The camera takes several seconds to start on a goal;
+                    # square up to the wall with the lidar meanwhile.
+                    heading = self.last_wall_heading
+                    if not prealigned and heading is not None and abs(heading) > yaw_tolerance:
+                        prealigned = True
+                        self.get_logger().info(
+                            f"Wall prealign: heading={math.degrees(heading):+.1f}deg while waiting for markers"
+                        )
+                        ok, message = self.odom_rotate(goal_handle, clamp(-heading, -max_turn, max_turn))
+                        if not ok:
+                            return result(False, False, message)
                     continue
                 if error == "canceled":
                     continue
@@ -950,23 +974,62 @@ class AlignAndCorrectActionServer(Node):
             if marker is not None:
                 final["x"] = marker["x"]
                 final["z"] = marker["z"]
-            heading = measured["heading"]
-            lateral = measured["lateral"]
-            distance_error = measured["distance"] - pair["wall_distance"]
+            if measured["distance"] - args.camera_x < params["z_min_stop"]:
+                return result(False, False, "Wall is too close; stopped before alignment.")
+
+            samples.append(measured)
+            heading = float(np.median([s["heading"] for s in samples]))
+            lateral = float(np.median([s["lateral"] for s in samples]))
+            distance_error = float(np.median([s["distance"] for s in samples])) - pair["wall_distance"]
             final["lateral"] = lateral
             final["distance"] = distance_error
             final["heading"] = heading
 
-            if measured["distance"] - args.camera_x < params["z_min_stop"]:
-                return result(False, False, "Wall is too close; stopped before alignment.")
+            in_tolerance = (
+                abs(heading) <= yaw_tolerance
+                and abs(lateral) <= args.pair_lateral_tolerance
+                and abs(distance_error) <= args.pair_distance_tolerance
+            )
+            near = (
+                abs(heading) <= yaw_tolerance * args.pair_near_factor
+                and abs(lateral) <= args.pair_lateral_tolerance * args.pair_near_factor
+                and abs(distance_error) <= args.pair_distance_tolerance * args.pair_near_factor
+            )
+            # Finishing takes pair_stable_count readings; moving again only
+            # needs two, so one stray reading does not trigger a move.
+            needed = args.pair_stable_count if in_tolerance else min(2, args.pair_stable_count)
+            if (in_tolerance or near) and len(samples) < needed:
+                feedback("stable_check")
+                time.sleep(args.stable_sec)
+                continue
+            if in_tolerance:
+                self.get_logger().info(
+                    f"Wall pair aligned: lateral={lateral * 100.0:+.1f}cm "
+                    f"distance_error={distance_error * 100.0:+.1f}cm "
+                    f"heading={math.degrees(heading):+.1f}deg centering={centering} "
+                    f"markers={measured['markers']} (median of {len(samples)})"
+                )
+                median = dict(
+                    measured,
+                    heading=heading,
+                    lateral=lateral,
+                    distance=distance_error + pair["wall_distance"],
+                )
+                return dict(result(True, False, "Wall pair alignment succeeded."), wall_measurement=median)
+            if len(samples) > 1:
+                self.get_logger().info(
+                    f"Wall median of {len(samples)}: lateral={lateral * 100.0:+.1f}cm "
+                    f"distance_error={distance_error * 100.0:+.1f}cm heading={math.degrees(heading):+.1f}deg"
+                )
+            samples = []
 
-            if abs(heading) > yaw_tolerance:
-                stable_hits = 0
+            lateral_off = abs(lateral) > args.pair_lateral_tolerance
+            if abs(heading) > yaw_tolerance and not lateral_off:
                 turn = clamp(-heading, -max_turn, max_turn)
                 feedback("align_yaw", angular_z=turn)
                 ok, message = self.odom_rotate(goal_handle, turn)
-            elif abs(lateral) > args.pair_lateral_tolerance:
-                stable_hits = 0
+            elif lateral_off:
+                # The center step's first turn also takes out the heading.
                 if centering >= args.pair_max_centering:
                     return result(
                         False,
@@ -976,26 +1039,13 @@ class AlignAndCorrectActionServer(Node):
                 centering += 1
                 feedback("center")
                 ok, message = self.center_step(
-                    goal_handle, lateral, distance_error, heading, measured["distance"], params["z_min_stop"]
+                    goal_handle, lateral, distance_error, heading,
+                    distance_error + pair["wall_distance"], params["z_min_stop"]
                 )
-            elif abs(distance_error) > args.pair_distance_tolerance:
-                stable_hits = 0
-                drive = clamp(distance_error, -args.pair_max_drive, args.pair_max_drive)
+            else:
+                drive = clamp(distance_error, -args.pair_max_approach, args.pair_max_approach)
                 feedback("approach_distance", linear_x=drive)
                 ok, message = self.odom_drive(goal_handle, drive)
-            else:
-                stable_hits += 1
-                feedback("stable_check")
-                if stable_hits >= args.pair_stable_count:
-                    self.get_logger().info(
-                        f"Wall pair aligned: lateral={lateral * 100.0:+.1f}cm "
-                        f"distance_error={distance_error * 100.0:+.1f}cm "
-                        f"heading={math.degrees(heading):+.1f}deg centering={centering} "
-                        f"markers={measured['markers']}"
-                    )
-                    return dict(result(True, False, "Wall pair alignment succeeded."), wall_measurement=measured)
-                time.sleep(args.stable_sec)
-                continue
 
             if not ok:
                 return result(False, False, message)
@@ -1036,13 +1086,28 @@ class AlignAndCorrectActionServer(Node):
             # edges and needs a step back anyway; back out instead.
             if drive * math.cos(turn) - distance_error <= args.pair_max_overshoot:
                 forward = (turn, drive)
+            elif distance_error > args.pair_max_drive:
+                # Still far behind: backing out only adds distance to cover
+                # later. Drive up to the target distance and leave the rest
+                # of the lateral for the next step.
+                limit = (distance_error + args.pair_max_overshoot) / math.cos(turn)
+                forward = (turn, min(drive, limit))
+        return_drive = 0.0
         if forward is not None:
             direction = 1.0
             turn, drive = forward
         else:
             direction = -1.0
-            turn = max_turn
+            # Prefer the full drive at a small angle over a short drive at a
+            # wide one: odometry drive errors then barely move the lateral.
+            # Up to the coarse angle so 0.6-1cm offsets also take one step.
+            back_max_turn = max(max_turn, math.radians(args.pair_coarse_max_turn_deg))
+            turn = min(back_max_turn, max(math.radians(1.0), math.asin(min(1.0, abs(lateral) / max_drive))))
             drive = min(max_drive, abs(lateral) / math.sin(turn))
+            # Drive straight back in after turning square, covering the
+            # distance error too, so one step fixes both without another
+            # measurement in between.
+            return_drive = drive * math.cos(turn) + distance_error
         if drive < args.maneuver_distance_tolerance:
             return False, "Wall center step has no room to move; check the start position."
 
@@ -1051,13 +1116,16 @@ class AlignAndCorrectActionServer(Node):
         self.get_logger().info(
             f"Wall center step: lateral={lateral * 100.0:+.1f}cm distance_error={distance_error * 100.0:+.1f}cm "
             f"turn={math.degrees(path_heading - heading):+.1f}deg drive={direction * drive * 100.0:+.1f}cm "
-            f"(expected lateral -{drive * math.sin(turn) * 100.0:.1f}cm)"
+            f"return={return_drive * 100.0:+.1f}cm (expected lateral -{drive * math.sin(turn) * 100.0:.1f}cm)"
         )
-        for kind, amount in (
+        moves = [
             ("turn", path_heading - heading),
             ("drive", direction * drive),
             ("turn", -path_heading),
-        ):
+        ]
+        if abs(return_drive) >= args.maneuver_distance_tolerance:
+            moves.append(("drive", return_drive))
+        for kind, amount in moves:
             if kind == "turn":
                 ok, message = self.odom_rotate(goal_handle, amount)
             else:
@@ -1154,7 +1222,18 @@ class AlignAndCorrectActionServer(Node):
         seen_scan = None
         seen_ray = {}
         deadline = time.time() + args.pair_measure_sec
-        while time.time() < deadline:
+        # Under CPU load (Nav2, zenoh, Pi under-voltage) only one or two scans
+        # may get through in pair_measure_sec. Keep the robot still and wait a
+        # little longer instead of failing and measuring again from scratch.
+        extended = deadline + args.pair_measure_extra_sec
+        while True:
+            now = time.time()
+            if now >= extended:
+                break
+            # A heading from only a few scans scatters by about 1 degree, so
+            # wait for pair_target_scans when they come in slowly.
+            if now >= deadline and len(fits) >= args.pair_target_scans and any(len(r) >= 3 for r in rays.values()):
+                break
             if goal_handle.is_cancel_requested:
                 return None, "canceled"
             with self.pose_lock:
@@ -1191,6 +1270,7 @@ class AlignAndCorrectActionServer(Node):
             along = ray_wall_along(camera_xy, np.mean(np.asarray(directions), axis=0), k, b)
             if along is not None:
                 hits[marker_id] = along
+        self.last_wall_heading = heading - pair["heading_trim"]
         if not hits:
             return None, "no_marker"
         left_id = pair["left_marker"]
@@ -1248,6 +1328,8 @@ class AlignAndCorrectActionServer(Node):
         return marker
 
     def odom_cb(self, msg):
+        if not self.wall_inputs_active:
+            return
         q = msg.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         with self.pose_lock:
@@ -1261,6 +1343,8 @@ class AlignAndCorrectActionServer(Node):
             }
 
     def scan_cb(self, msg):
+        if not self.wall_inputs_active:
+            return
         with self.pose_lock:
             self.latest_scan = msg
 
@@ -1514,6 +1598,7 @@ class AlignAndCorrectActionServer(Node):
                 qos_profile_sensor_data,
                 callback_group=self.callback_group,
             )
+        self.wall_inputs_active = bool(wall_pair)
 
         if self.args.pose_source == "topic":
             topic = self.pose_topic_for_marker(marker_id)
@@ -1639,24 +1724,13 @@ class AlignAndCorrectActionServer(Node):
         if self.pose_sub is not None:
             self.destroy_subscription(self.pose_sub)
             self.pose_sub = None
-        if self.odom_sub is not None:
-            self.destroy_subscription(self.odom_sub)
-            self.odom_sub = None
-        if self.scan_sub is not None:
-            self.destroy_subscription(self.scan_sub)
-            self.scan_sub = None
+        # Keep the odom, scan and image subscriptions (see __init__); the
+        # flags below make their callbacks return right away.
+        self.wall_inputs_active = False
         with self.pose_input_lock:
             marker_id = self.active_marker_id
             self.active_marker_id = None
             self.wall_marker_ids = ()
-            image_sub = self.image_sub
-            camera_info_sub = self.camera_info_sub
-            self.image_sub = None
-            self.camera_info_sub = None
-        if image_sub is not None:
-            self.image_node.destroy_subscription(image_sub)
-        if camera_info_sub is not None:
-            self.image_node.destroy_subscription(camera_info_sub)
         if marker_id is not None and self.args.pose_source == "camera":
             self.get_logger().info(f"Stopped on-demand ArUco alignment detection for marker_id={marker_id}")
         with self.pose_lock:
@@ -1887,24 +1961,32 @@ def parse_args():
     # Single lidar scans scatter about +-0.4deg in heading on robot1.
     parser.add_argument("--pair-yaw-tolerance-deg", type=float, default=0.5)
     parser.add_argument("--pair-lateral-tolerance", type=float, default=0.003)
-    parser.add_argument("--pair-distance-tolerance", type=float, default=0.005)
+    parser.add_argument("--pair-distance-tolerance", type=float, default=0.003)
     # Bounds for one move: turn angle and drive distance.
-    parser.add_argument("--pair-max-turn-deg", type=float, default=8.0)
+    parser.add_argument("--pair-max-turn-deg", type=float, default=12.0)
     parser.add_argument("--pair-max-drive", type=float, default=0.03)
     # Lateral offsets above pair-coarse-lateral, or approaches longer than
     # pair-max-drive, use the wider coarse limits.
-    parser.add_argument("--pair-coarse-lateral", type=float, default=0.02)
+    parser.add_argument("--pair-coarse-lateral", type=float, default=0.01)
     parser.add_argument("--pair-coarse-max-turn-deg", type=float, default=20.0)
-    parser.add_argument("--pair-coarse-max-drive", type=float, default=0.06)
+    parser.add_argument("--pair-coarse-max-drive", type=float, default=0.10)
+    # A straight approach (lateral already in tolerance) may cover this much at once.
+    parser.add_argument("--pair-max-approach", type=float, default=0.15)
     parser.add_argument("--pair-wall-margin", type=float, default=0.02)
     # A forward center step may pass the target distance by at most this much.
-    parser.add_argument("--pair-max-overshoot", type=float, default=0.010)
+    parser.add_argument("--pair-max-overshoot", type=float, default=0.003)
     parser.add_argument("--pair-max-centering", type=int, default=10)
     # Consecutive in-tolerance measurements needed to finish.
     parser.add_argument("--pair-stable-count", type=int, default=3)
+    # Within this many times the tolerances, measure again (up to
+    # pair-stable-count readings) before moving, and decide on the median.
+    parser.add_argument("--pair-near-factor", type=float, default=2.0)
     parser.add_argument("--pair-timeout-sec", type=float, default=90.0)
     parser.add_argument("--pair-settle-sec", type=float, default=0.3)
     parser.add_argument("--pair-measure-sec", type=float, default=2.0)
+    # Extra wait when the measurement window got too few scans or marker rays.
+    parser.add_argument("--pair-measure-extra-sec", type=float, default=2.0)
+    parser.add_argument("--pair-target-scans", type=int, default=8)
     # Lateral read on the floor mark, per node: "N5:0.015,N6:-0.01" [m, robot's right +].
     parser.add_argument("--pair-lateral-trims", default="none")
     # x/z preset alignment refuses to start when the marker is further off

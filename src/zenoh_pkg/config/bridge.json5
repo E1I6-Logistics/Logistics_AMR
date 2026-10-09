@@ -22,7 +22,6 @@
 
         // Main -> Robot Action
         action_servers: [
-          "^/follow_waypoints$",
           "^/aruco_align_and_correct$",
           "^/precision_dock$",
           "^/navigate_through_poses$"
