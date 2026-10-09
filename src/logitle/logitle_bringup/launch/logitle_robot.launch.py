@@ -50,6 +50,7 @@ def generate_launch_description():
     use_nav2 = LaunchConfiguration('use_nav2')
     use_logitle_pose = LaunchConfiguration('use_logitle_pose')
     use_docking = LaunchConfiguration('use_docking')
+    docking_dry_run = LaunchConfiguration('docking_dry_run')
 
     initial_pose_x = LaunchConfiguration('initial_pose_x')
     initial_pose_y = LaunchConfiguration('initial_pose_y')
@@ -109,6 +110,12 @@ def generate_launch_description():
         'use_docking',
         default_value='true',
         description='Launch logitle docking action server.'
+    )
+
+    declare_docking_dry_run_cmd = DeclareLaunchArgument(
+        'docking_dry_run',
+        default_value='false',
+        description='Validate docking inputs and ICP without commanding motion.'
     )
 
     declare_mask_yaml_cmd = DeclareLaunchArgument(
@@ -249,13 +256,15 @@ def generate_launch_description():
         parameters=[
             {
                 'use_sim_time': use_sim_time,
-                'odom_frame': 'odom',
                 'base_frame': 'base_footprint',
+                'map_frame': 'map',
+                'scan_frame': 'base_scan',
                 'charger_width': 0.145,
                 'wing_length': 0.10,
                 'wing_angle_deg': 22.5,
-                'roi_y_limit': 0.25,
-                'staging_distance': 0.60,
+                'roi_y_limit': 0.15,
+                'staging_distance': 0.45,
+                'dry_run': docking_dry_run,
             }
         ],
         condition=IfCondition(use_docking),
@@ -297,6 +306,7 @@ def generate_launch_description():
     ld.add_action(declare_use_nav2_cmd)
     ld.add_action(declare_use_logitle_pose_cmd)
     ld.add_action(declare_use_docking_cmd)
+    ld.add_action(declare_docking_dry_run_cmd)
     ld.add_action(declare_mask_yaml_cmd)
 
     ld.add_action(declare_initial_pose_x_cmd)
