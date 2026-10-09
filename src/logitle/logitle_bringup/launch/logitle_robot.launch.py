@@ -254,8 +254,8 @@ def generate_launch_description():
                 'charger_width': 0.145,
                 'wing_length': 0.10,
                 'wing_angle_deg': 22.5,
-                'roi_y_limit': 0.25,
-                'staging_distance': 0.60,
+                'roi_y_limit': 0.15,
+                'staging_distance': 0.45,
             }
         ],
         condition=IfCondition(use_docking),
