@@ -132,7 +132,6 @@ class PrecisionDockingServer(Node):
 
     def _declare_and_update_params(self):
         params = {
-            'base_frame': 'base_footprint'
             # 도크 V 모델 및 LiDAR ROI (실제 사용값은 launch에서 덮어씀)
             'charger_width': 0.145, 'wing_length': 0.10, 'wing_angle_deg': 22.5, 'robot_rear_length': 0.10,
             'roi_x_min': -1.2, 'roi_x_max': 0.15, 'roi_y_limit': 0.20,
