@@ -129,7 +129,7 @@ controller_server:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       
       # 1. 일정한 선속도 유지 (감속 트리거 전체 해제)
-      desired_linear_vel: 0.09
+      desired_linear_vel: 0.10
 
       # ==========================================
       # # RPP 1.3.13 이 사용하지 않는 파라미터 아래 4개
