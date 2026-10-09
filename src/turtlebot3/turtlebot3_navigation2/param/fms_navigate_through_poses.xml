@@ -1,6 +1,6 @@
 
 <!--
-  This Behavior Tree replans the global path periodically at 3 Hz through an array of poses continuously
+  This Behavior Tree replans the global path periodically at 1 Hz through an array of poses continuously
    and it also has recovery actions specific to planning / control as well as general system issues.
 -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
@@ -17,12 +17,12 @@
           default_planner="ThetaStar"
           topic_name="planner_selector"/>
 
-        <!-- 경유지 확인: 5Hz -->
-        <RateController hz="5.0">
+        <!-- 경유지 확인: 3Hz -->
+        <RateController hz="3.0">
           <RemovePassedGoals
             input_goals="{goals}"
             output_goals="{goals}"
-            radius="0.05"
+            radius="0.06"
             global_frame="map"
             robot_base_frame="base_footprint"/>
         </RateController>
