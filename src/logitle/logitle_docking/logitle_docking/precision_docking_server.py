@@ -126,7 +126,7 @@ class PrecisionDockingServer(Node):
             'charger_width': 0.145,
             'wing_length': 0.10, 
             'wing_angle_deg': 22.5,
-            'robot_rear_length': 0.10, 
+            'robot_rear_length': 0.8, 
             'roi_x_min': -1.2, 
             'roi_x_max': 0.15,
             'roi_y_limit': 0.20, 
