@@ -397,6 +397,11 @@ class AlignAndCorrectActionServer(Node):
         self.latest_odom = None
         self.scan_sub = None
         self.latest_scan = None
+        # Odometry/scan/camera subscriptions are created on the first goal and
+        # then kept: destroying them from a goal thread while the executor
+        # waits on them crashed robot3 with InvalidHandle (2026-10-09).
+        # Callbacks drop messages while no goal is active.
+        self.wall_inputs_active = False
         # Pair minus single-marker lateral, per marker. Kept across goals: a
         # goal that starts close to the wall may never see both markers.
         self.wall_single_offsets = {}
@@ -1095,7 +1100,9 @@ class AlignAndCorrectActionServer(Node):
             direction = -1.0
             # Prefer the full drive at a small angle over a short drive at a
             # wide one: odometry drive errors then barely move the lateral.
-            turn = min(max_turn, max(math.radians(1.0), math.asin(min(1.0, abs(lateral) / max_drive))))
+            # Up to the coarse angle so 0.6-1cm offsets also take one step.
+            back_max_turn = max(max_turn, math.radians(args.pair_coarse_max_turn_deg))
+            turn = min(back_max_turn, max(math.radians(1.0), math.asin(min(1.0, abs(lateral) / max_drive))))
             drive = min(max_drive, abs(lateral) / math.sin(turn))
             # Drive straight back in after turning square, covering the
             # distance error too, so one step fixes both without another
@@ -1215,7 +1222,18 @@ class AlignAndCorrectActionServer(Node):
         seen_scan = None
         seen_ray = {}
         deadline = time.time() + args.pair_measure_sec
-        while time.time() < deadline:
+        # Under CPU load (Nav2, zenoh, Pi under-voltage) only one or two scans
+        # may get through in pair_measure_sec. Keep the robot still and wait a
+        # little longer instead of failing and measuring again from scratch.
+        extended = deadline + args.pair_measure_extra_sec
+        while True:
+            now = time.time()
+            if now >= extended:
+                break
+            # A heading from only a few scans scatters by about 1 degree, so
+            # wait for pair_target_scans when they come in slowly.
+            if now >= deadline and len(fits) >= args.pair_target_scans and any(len(r) >= 3 for r in rays.values()):
+                break
             if goal_handle.is_cancel_requested:
                 return None, "canceled"
             with self.pose_lock:
@@ -1310,6 +1328,8 @@ class AlignAndCorrectActionServer(Node):
         return marker
 
     def odom_cb(self, msg):
+        if not self.wall_inputs_active:
+            return
         q = msg.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         with self.pose_lock:
@@ -1323,6 +1343,8 @@ class AlignAndCorrectActionServer(Node):
             }
 
     def scan_cb(self, msg):
+        if not self.wall_inputs_active:
+            return
         with self.pose_lock:
             self.latest_scan = msg
 
@@ -1576,6 +1598,7 @@ class AlignAndCorrectActionServer(Node):
                 qos_profile_sensor_data,
                 callback_group=self.callback_group,
             )
+        self.wall_inputs_active = bool(wall_pair)
 
         if self.args.pose_source == "topic":
             topic = self.pose_topic_for_marker(marker_id)
@@ -1701,24 +1724,13 @@ class AlignAndCorrectActionServer(Node):
         if self.pose_sub is not None:
             self.destroy_subscription(self.pose_sub)
             self.pose_sub = None
-        if self.odom_sub is not None:
-            self.destroy_subscription(self.odom_sub)
-            self.odom_sub = None
-        if self.scan_sub is not None:
-            self.destroy_subscription(self.scan_sub)
-            self.scan_sub = None
+        # Keep the odom, scan and image subscriptions (see __init__); the
+        # flags below make their callbacks return right away.
+        self.wall_inputs_active = False
         with self.pose_input_lock:
             marker_id = self.active_marker_id
             self.active_marker_id = None
             self.wall_marker_ids = ()
-            image_sub = self.image_sub
-            camera_info_sub = self.camera_info_sub
-            self.image_sub = None
-            self.camera_info_sub = None
-        if image_sub is not None:
-            self.image_node.destroy_subscription(image_sub)
-        if camera_info_sub is not None:
-            self.image_node.destroy_subscription(camera_info_sub)
         if marker_id is not None and self.args.pose_source == "camera":
             self.get_logger().info(f"Stopped on-demand ArUco alignment detection for marker_id={marker_id}")
         with self.pose_lock:
@@ -1972,6 +1984,9 @@ def parse_args():
     parser.add_argument("--pair-timeout-sec", type=float, default=90.0)
     parser.add_argument("--pair-settle-sec", type=float, default=0.3)
     parser.add_argument("--pair-measure-sec", type=float, default=2.0)
+    # Extra wait when the measurement window got too few scans or marker rays.
+    parser.add_argument("--pair-measure-extra-sec", type=float, default=2.0)
+    parser.add_argument("--pair-target-scans", type=int, default=8)
     # Lateral read on the floor mark, per node: "N5:0.015,N6:-0.01" [m, robot's right +].
     parser.add_argument("--pair-lateral-trims", default="none")
     # x/z preset alignment refuses to start when the marker is further off
