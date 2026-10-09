@@ -17,18 +17,18 @@
           default_planner="ThetaStar"
           topic_name="planner_selector"/>
 
-        <!-- 경유지 확인: 10Hz -->
+        <!-- 경유지 확인: 5Hz -->
         <RateController hz="5.0">
           <RemovePassedGoals
             input_goals="{goals}"
             output_goals="{goals}"
-            radius="0.06"
+            radius="0.05"
             global_frame="map"
             robot_base_frame="base_footprint"/>
         </RateController>
 
-        <!-- ThetaStar 경로 재계산: 3Hz -->
-        <RateController hz="2.0">
+        <!-- ThetaStar 경로 재계산: 1Hz -->
+        <RateController hz="1.0">
           <RecoveryNode
             number_of_retries="1"
             name="ComputePathThroughPoses">
@@ -72,7 +72,7 @@
             </Sequence>
             <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
             <Wait wait_duration="5.0"/>
-            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_error_code}"/>
+            <!-- <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_error_code}"/> -->
           </RoundRobin>
         </ReactiveFallback>
       </Sequence>
