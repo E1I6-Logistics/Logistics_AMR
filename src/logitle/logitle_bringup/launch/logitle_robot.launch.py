@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -114,8 +115,8 @@ def generate_launch_description():
 
     declare_docking_dry_run_cmd = DeclareLaunchArgument(
         'docking_dry_run',
-        default_value='false',
-        description='Validate docking inputs and ICP without commanding motion.'
+        default_value='true',
+        description='Verify Map staging/model poses without any robot motion.'
     )
 
     declare_mask_yaml_cmd = DeclareLaunchArgument(
@@ -262,9 +263,16 @@ def generate_launch_description():
                 'charger_width': 0.145,
                 'wing_length': 0.10,
                 'wing_angle_deg': 22.5,
-                'roi_y_limit': 0.15,
-                'staging_distance': 0.45,
-                'dry_run': docking_dry_run,
+                # 실측 V형 도크 형상과 Map 도킹 완료 위치
+                'roi_y_limit': 0.20,
+                'dock_pose_configured': last_char in initial_points,
+                'dock_final_map_x': float(init_point[0]),
+                'dock_final_map_y': float(init_point[1]),
+                'dock_final_map_yaw': float(init_point[2]),
+                'staging_offset_from_final': 0.35,
+                'dock_model_rear_offset': 0.10,
+                'recovery_max_retries': 2,
+                'dry_run': ParameterValue(docking_dry_run, value_type=bool),
             }
         ],
         condition=IfCondition(use_docking),
