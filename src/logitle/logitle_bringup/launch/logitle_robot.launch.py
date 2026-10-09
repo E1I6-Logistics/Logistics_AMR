@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -50,6 +51,7 @@ def generate_launch_description():
     use_nav2 = LaunchConfiguration('use_nav2')
     use_logitle_pose = LaunchConfiguration('use_logitle_pose')
     use_docking = LaunchConfiguration('use_docking')
+    docking_dry_run = LaunchConfiguration('docking_dry_run')
 
     initial_pose_x = LaunchConfiguration('initial_pose_x')
     initial_pose_y = LaunchConfiguration('initial_pose_y')
@@ -109,6 +111,12 @@ def generate_launch_description():
         'use_docking',
         default_value='true',
         description='Launch logitle docking action server.'
+    )
+
+    declare_docking_dry_run_cmd = DeclareLaunchArgument(
+        'docking_dry_run',
+        default_value='true',
+        description='Verify Map staging/model poses without any robot motion.'
     )
 
     declare_mask_yaml_cmd = DeclareLaunchArgument(
@@ -249,13 +257,30 @@ def generate_launch_description():
         parameters=[
             {
                 'use_sim_time': use_sim_time,
-                'odom_frame': 'odom',
                 'base_frame': 'base_footprint',
+<<<<<<< HEAD
                 'charger_width': 0.145,
                 'wing_length': 0.10,
                 'wing_angle_deg': 22.5,
                 'roi_y_limit': 0.15,
                 'staging_distance': 0.45,
+=======
+                'map_frame': 'map',
+                'scan_frame': 'base_scan',
+                'charger_width': 0.145,
+                'wing_length': 0.10,
+                'wing_angle_deg': 22.5,
+                # 실측 V형 도크 형상과 Map 도킹 완료 위치
+                'roi_y_limit': 0.20,
+                'dock_pose_configured': last_char in initial_points,
+                'dock_final_map_x': float(init_point[0]),
+                'dock_final_map_y': float(init_point[1]),
+                'dock_final_map_yaw': float(init_point[2]),
+                'staging_offset_from_final': 0.35,
+                'dock_model_rear_offset': 0.10,
+                'recovery_max_retries': 2,
+                'dry_run': ParameterValue(docking_dry_run, value_type=bool),
+>>>>>>> 90b838c5cefe53f7365ba5bfae9603186f43b0f8
             }
         ],
         condition=IfCondition(use_docking),
@@ -297,6 +322,7 @@ def generate_launch_description():
     ld.add_action(declare_use_nav2_cmd)
     ld.add_action(declare_use_logitle_pose_cmd)
     ld.add_action(declare_use_docking_cmd)
+    ld.add_action(declare_docking_dry_run_cmd)
     ld.add_action(declare_mask_yaml_cmd)
 
     ld.add_action(declare_initial_pose_x_cmd)
