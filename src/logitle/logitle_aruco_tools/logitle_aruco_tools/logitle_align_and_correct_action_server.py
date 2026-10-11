@@ -1118,21 +1118,38 @@ class AlignAndCorrectActionServer(Node):
             f"turn={math.degrees(path_heading - heading):+.1f}deg drive={direction * drive * 100.0:+.1f}cm "
             f"return={return_drive * 100.0:+.1f}cm (expected lateral -{drive * math.sin(turn) * 100.0:.1f}cm)"
         )
+        # Turn to absolute odom yaws measured from the wall-parallel yaw at the
+        # start, not by undoing the first turn. A robot that drifts while
+        # driving straight (robot2: 1.3 deg per 10 cm) otherwise keeps that
+        # error, and the return drive pushes the lateral 0.4 cm past the mark
+        # (robot2 N4, 2026-10-11). Square up again after the return drive.
+        start = self.get_odom()
+        if start is None:
+            return False, f"No odometry on {args.odom_topic} for the wall maneuver."
+        wall_yaw = start["yaw"] - heading
         moves = [
-            ("turn", path_heading - heading),
+            ("turn_to", wall_yaw + path_heading),
             ("drive", direction * drive),
-            ("turn", -path_heading),
+            ("turn_to", wall_yaw),
         ]
         if abs(return_drive) >= args.maneuver_distance_tolerance:
             moves.append(("drive", return_drive))
+            moves.append(("turn_to", wall_yaw))
         for kind, amount in moves:
-            if kind == "turn":
-                ok, message = self.odom_rotate(goal_handle, amount)
+            if kind == "turn_to":
+                ok, message = self.odom_rotate_to(goal_handle, amount)
             else:
                 ok, message = self.odom_drive(goal_handle, amount)
             if not ok:
                 return False, message
         return True, ""
+
+    def odom_rotate_to(self, goal_handle, yaw):
+        """Rotate to an absolute odom yaw."""
+        odom = self.get_odom()
+        if odom is None:
+            return False, f"No odometry on {self.args.odom_topic} for the wall maneuver."
+        return self.odom_rotate(goal_handle, wrap_angle(yaw - odom["yaw"]))
 
     def odom_rotate(self, goal_handle, angle):
         args = self.args
