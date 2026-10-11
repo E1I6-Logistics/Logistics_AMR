@@ -15,6 +15,8 @@ Panels:
       - /Current View1
     Name: Views
     Splitter Ratio: 0.5
+  - Class: nav2_rviz_plugins/Route Tool
+    Name: Route Tool
 Visualization Manager:
   Class: ""
   Displays:
@@ -187,6 +189,34 @@ Visualization Manager:
           Value: true
       Enabled: true
       Name: Paths
+    - Class: rviz_common/Group
+      Displays:
+        - Class: rviz_default_plugins/MarkerArray
+          Enabled: true
+          Name: Route Server (robot1)
+          Namespaces: {}
+          Topic:
+            Depth: 5
+            Durability Policy: Transient Local
+            Filter size: 10
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /robot1/route_graph
+          Value: true
+        - Class: rviz_default_plugins/MarkerArray
+          Enabled: true
+          Name: Route Tool (manual load)
+          Namespaces: {}
+          Topic:
+            Depth: 5
+            Durability Policy: Transient Local
+            Filter size: 10
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /route_graph
+          Value: true
+      Enabled: true
+      Name: Route Graph
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
