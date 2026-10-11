@@ -1130,14 +1130,16 @@ class AlignAndCorrectActionServer(Node):
         moves = [
             ("turn_to", wall_yaw + path_heading),
             ("drive", direction * drive),
-            ("turn_to", wall_yaw),
         ]
         if abs(return_drive) >= args.maneuver_distance_tolerance:
-            moves.append(("drive", return_drive))
             moves.append(("turn_to", wall_yaw))
+            moves.append(("drive", return_drive))
+        moves.append(("square", wall_yaw))
         for kind, amount in moves:
             if kind == "turn_to":
                 ok, message = self.odom_rotate_to(goal_handle, amount)
+            elif kind == "square":
+                ok, message = self.odom_square_to(goal_handle, amount)
             else:
                 ok, message = self.odom_drive(goal_handle, amount)
             if not ok:
@@ -1150,6 +1152,61 @@ class AlignAndCorrectActionServer(Node):
         if odom is None:
             return False, f"No odometry on {self.args.odom_topic} for the wall maneuver."
         return self.odom_rotate(goal_handle, wrap_angle(yaw - odom["yaw"]))
+
+    def odom_square_to(self, goal_handle, yaw):
+        """Rotate to yaw, wait for the robot to stop, then check again.
+
+        Command latency and inertia keep the robot turning 0.6-1.2 deg after
+        the turn command stops (robot3 at CPU load 20+, 2026-10-11). Odometry
+        sees that extra turn, so re-read it once the robot has stopped and
+        correct what is left with a timed pulse.
+        """
+        args = self.args
+        tolerance = math.radians(args.maneuver_settle_tolerance_deg)
+        ok, message = self.odom_rotate_to(goal_handle, yaw)
+        if not ok:
+            return ok, message
+        for attempt in range(args.maneuver_settle_retries + 1):
+            started = time.time()
+            while time.time() - started < args.maneuver_settle_max_sec:
+                odom = self.get_odom()
+                if (
+                    time.time() - started >= args.maneuver_settle_min_sec
+                    and odom is not None
+                    and abs(odom["angular"]) < math.radians(0.5)
+                ):
+                    break
+                time.sleep(args.maneuver_period)
+            odom = self.get_odom()
+            if odom is None:
+                return False, f"No odometry on {args.odom_topic} for the wall maneuver."
+            error = wrap_angle(yaw - odom["yaw"])
+            if abs(error) <= tolerance or attempt == args.maneuver_settle_retries:
+                break
+            ok, message = self.odom_pulse_turn(goal_handle, error)
+            if not ok:
+                return ok, message
+        return True, ""
+
+    def odom_pulse_turn(self, goal_handle, angle):
+        """Turn a small angle at the minimum turn rate for a fixed time.
+
+        Stopping on odometry let the robot keep turning through the ~0.3 s
+        command latency, so a 1 deg correction overshot by 1 deg. A timed pulse
+        is delayed by the same amount at its start and end, so the robot turns
+        rate x time.
+        """
+        args = self.args
+        rate = args.maneuver_min_angular
+        end = time.time() + abs(angle) / rate
+        while time.time() < end:
+            if goal_handle.is_cancel_requested:
+                self.stop_robot()
+                return False, "Canceled."
+            self.publish_cmd(0.0, math.copysign(rate, angle))
+            time.sleep(max(0.0, min(args.maneuver_period, end - time.time())))
+        self.stop_robot()
+        return True, ""
 
     def odom_rotate(self, goal_handle, angle):
         args = self.args
@@ -1735,7 +1792,32 @@ class AlignAndCorrectActionServer(Node):
                 except (ProcessLookupError, subprocess.TimeoutExpired):
                     if process.poll() is None:
                         os.killpg(process.pid, signal.SIGKILL)
+        # The camera container can outlive its launch process in the same group.
+        # A leftover container advertises /camera/image_raw without frames, so
+        # the next goal reused it and timed out (robot2 and robot3, 2026-10-11).
+        self.kill_process_group(process.pid)
         self.get_logger().info("Stopped camera started for the completed Action goal")
+
+    def kill_process_group(self, pgid):
+        for sig, wait_sec in ((signal.SIGTERM, 3.0), (signal.SIGKILL, 1.0)):
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                pass
+            self.get_logger().warn(f"Camera process group {pgid} still alive after launch exit; sending {sig.name}")
+            try:
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                return
+            deadline = time.time() + wait_sec
+            while time.time() < deadline:
+                try:
+                    os.killpg(pgid, 0)
+                except ProcessLookupError:
+                    return
+                time.sleep(0.1)
 
     def stop_pose_input(self):
         if self.pose_sub is not None:
@@ -2054,6 +2136,10 @@ def parse_args():
     parser.add_argument("--maneuver-lead-sec", type=float, default=0.25)
     parser.add_argument("--maneuver-period", type=float, default=0.05)
     parser.add_argument("--maneuver-timeout-sec", type=float, default=10.0)
+    parser.add_argument("--maneuver-settle-tolerance-deg", type=float, default=0.3)
+    parser.add_argument("--maneuver-settle-retries", type=int, default=2)
+    parser.add_argument("--maneuver-settle-min-sec", type=float, default=0.3)
+    parser.add_argument("--maneuver-settle-max-sec", type=float, default=1.0)
 
     parser.add_argument("--timeout-sec", type=float, default=30.0)
     parser.add_argument("--align-timeout-sec", type=float, default=25.0)
