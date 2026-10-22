@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nav2_graph_waypoint_bt</name>
+  <version>0.1.0</version>
+  <description>ROS 2 Jazzy Nav2 turn-aware waypoint BT nodes</description>
+  <maintainer email="developer@example.org">robot developer</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>behaviortree_cpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav2_util</depend>
+  <depend>rclcpp</depend>
+  <depend>tf2_ros</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
