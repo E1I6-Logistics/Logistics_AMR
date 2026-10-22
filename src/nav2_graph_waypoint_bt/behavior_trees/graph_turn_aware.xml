@@ -5,8 +5,10 @@
       <Sequence name="NavigateWithTurnStops">
         <ControllerSelector selected_controller="{selected_controller}"
                             default_controller="FollowPath" topic_name="controller_selector"/>
-        <PlannerSelector selected_planner="{selected_planner}"
-                         default_planner="ThetaStar" topic_name="planner_selector"/>
+        <PlannerSelector
+          selected_planner="{selected_planner}"
+          default_planner="StraightFirst"
+          topic_name="planner_selector"/>
         <TurnSegmentControl input_goals="{goals}" remaining_goals="{goals}"
                             segment_goals="{segment_goals}" segment_id="{segment_id}"
                             turn_angle_deg="15.0" min_leg_length="0.07">

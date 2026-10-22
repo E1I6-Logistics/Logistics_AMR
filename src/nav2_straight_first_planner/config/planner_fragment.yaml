@@ -1,0 +1,9 @@
+# Merge into existing planner_server.ros__parameters, not a standalone full replacement.
+planner_plugins: ["Navfn", "Smac2D", "ThetaStar", "StraightFirst"]
+StraightFirst:
+  plugin: "nav2_straight_first_planner::StraightFirstPlanner"
+  interpolation_resolution: 0.05
+  safety_radius: 0.12  # Burger radius 0.10m + 0.02m clearance
+  max_cell_cost: 252  # 253+ blocked: inscribed, lethal, unknown
+  allow_unknown: false
+# Keep your existing Smac2D: section (A* delegate params).
