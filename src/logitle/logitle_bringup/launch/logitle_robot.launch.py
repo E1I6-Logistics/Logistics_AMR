@@ -255,7 +255,7 @@ def generate_launch_description():
                 'wing_length': 0.10,
                 'wing_angle_deg': 22.5,
                 'roi_y_limit': 0.15,
-                'staging_distance': 0.45,
+                'staging_distance': 0.30,
             }
         ],
         condition=IfCondition(use_docking),
