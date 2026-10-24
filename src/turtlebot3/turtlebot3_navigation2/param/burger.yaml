@@ -30,7 +30,7 @@ amcl:
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 0.5
-    update_min_a: 0.2
+    update_min_a: 0.07
     update_min_d: 0.05   ## 0.25
     z_hit: 0.5
     z_max: 0.05
@@ -148,7 +148,7 @@ controller_server:
       approach_velocity_scaling_dist: 0.35
       min_approach_linear_velocity: 0.05
 
-      use_regulated_linear_velocity_scaling: false
+      use_regulated_linear_velocity_scaling: true
       regulated_linear_scaling_min_radius: 0.9
       regulated_linear_scaling_min_speed: 0.10
 
