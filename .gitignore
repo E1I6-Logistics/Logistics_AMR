@@ -22,3 +22,6 @@ experiment_data/**/photos/*
 # 운영체제 생성 임시 파일
 .DS_Store
 Thumbs.db
+
+# Agent customizations and skills
+.agents/
