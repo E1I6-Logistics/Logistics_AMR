@@ -25,3 +25,6 @@ Thumbs.db
 
 # Agent customizations and skills
 .agents/
+
+#docs
+docs/
