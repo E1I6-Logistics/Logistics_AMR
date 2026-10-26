@@ -17,12 +17,12 @@
           default_planner="ThetaStar"
           topic_name="planner_selector"/>
 
-        <!-- 경유지 확인: 3Hz -->
-        <RateController hz="3.0">
+        <!-- 경유지 확인: 20Hz -->
+        <RateController hz="20.0">
           <RemovePassedGoals
             input_goals="{goals}"
             output_goals="{goals}"
-            radius="0.06"
+            radius="0.04"
             global_frame="map"
             robot_base_frame="base_footprint"/>
         </RateController>
