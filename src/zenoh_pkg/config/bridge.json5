@@ -1,0 +1,44 @@
+{
+  plugins: {
+    ros2dds: {
+      allow: {
+        // Robot -> Main
+        publishers: [
+          "^/battery_state$",
+          "^/logitle_pose$",
+          "^/map$",
+          "^/plan$"
+        ],
+
+        // Main -> Robot
+        subscribers: [
+          "^/cmd_vel$"
+        ],
+
+        // Main -> Robot Service
+        service_servers: [],
+
+        service_clients: [],
+
+        // Main -> Robot Action
+        action_servers: [
+          "^/aruco_align_and_correct$",
+          "^/precision_dock$",
+          "^/navigate_through_poses$"
+        ],
+
+        action_clients: []
+      }
+    }
+  },
+
+  scouting: {
+    multicast: {
+      enabled: false
+    },
+
+    gossip: {
+      enabled: false
+    }
+  }
+}

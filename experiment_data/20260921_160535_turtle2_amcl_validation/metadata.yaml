@@ -1,0 +1,21 @@
+schema_version: 1
+run_id: 20260921_160535_turtle2_amcl_validation
+status: INTERRUPTED
+started_at: '2026-09-21T16:05:35+09:00'
+finished_at: '2026-09-21T16:06:28+09:00'
+git_commit: dbbad64748b45088e85fa276cedbeae6b0849d9b-dirty
+repository: /home/woozoo/dev/Logistics_AMR_logitle
+robot:
+  name: turtle2
+  ros_domain_id: 31
+  namespace: ''
+scenario_id: straight_goal
+experiment:
+  type: amcl_validation
+  name: amcl_validation
+  trials_per_reference: 3
+nav_launch_command: ''
+params_file: ''
+params_file_sha256: null
+map_file: ''
+map_file_sha256: null

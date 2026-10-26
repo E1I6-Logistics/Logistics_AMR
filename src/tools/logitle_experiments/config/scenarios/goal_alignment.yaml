@@ -1,0 +1,9 @@
+schema_version: 1
+scenario:
+  id: goal_alignment
+  description: GOAL reference alignment for investigating the left-side stop cluster
+  reference_points:
+    goal:
+      x: 1.7000
+      y: 0.1920
+      yaw: 0.1167

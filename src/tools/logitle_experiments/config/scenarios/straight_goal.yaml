@@ -1,0 +1,21 @@
+schema_version: 1
+scenario:
+  id: straight_goal
+  description: 1.8 m straight START-to-GOAL route
+  start:
+    x: -0.0797
+    y: -0.0167
+    yaw: 0.1167
+  goal:
+    x: 1.7000
+    y: 0.1920
+    yaw: 0.1167
+  reference_points:
+    start:
+      x: -0.0797
+      y: -0.0167
+      yaw: 0.1167
+    goal:
+      x: 1.7000
+      y: 0.1920
+      yaw: 0.1167

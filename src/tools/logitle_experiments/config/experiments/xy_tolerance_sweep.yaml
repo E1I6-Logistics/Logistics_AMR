@@ -1,0 +1,63 @@
+schema_version: 1
+experiment:
+  type: navigation_sweep
+  name: xy_tolerance_sweep
+  trials_per_condition: 5
+
+initial_localization:
+  position_stddev_m: 0.05
+  yaw_stddev_deg: 5.0
+  settle_sec: 1.0
+
+measurement:
+  method: steel_ruler
+  resolution_mm: 1
+
+execution:
+  success_wait_sec: 3.0
+  capture_trace: false
+  condition_order:
+    - xy_250
+    - xy_100
+    - xy_050
+    - xy_050
+    - xy_100
+    - xy_250
+    - xy_100
+    - xy_250
+    - xy_050
+    - xy_050
+    - xy_250
+    - xy_100
+    - xy_250
+    - xy_050
+    - xy_100
+
+record_parameters:
+  controller_server:
+    - goal_checker.xy_goal_tolerance
+    - goal_checker.yaw_goal_tolerance
+    - FollowPath.xy_goal_tolerance
+    - FollowPath.trans_stopped_velocity
+    - FollowPath.max_vel_x
+    - FollowPath.max_speed_xy
+
+conditions:
+  - id: xy_250
+    label: XY 250 mm
+    parameters:
+      controller_server:
+        goal_checker.xy_goal_tolerance: 0.25
+        goal_checker.yaw_goal_tolerance: 0.25
+  - id: xy_100
+    label: XY 100 mm
+    parameters:
+      controller_server:
+        goal_checker.xy_goal_tolerance: 0.10
+        goal_checker.yaw_goal_tolerance: 0.25
+  - id: xy_050
+    label: XY 50 mm
+    parameters:
+      controller_server:
+        goal_checker.xy_goal_tolerance: 0.05
+        goal_checker.yaw_goal_tolerance: 0.25
