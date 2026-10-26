@@ -1,0 +1,12 @@
+# Goal: 목표 위치 정의
+geometry_msgs/PoseStamped target_pose
+
+---
+# Result: 도킹 완료 여부 및 결과 메시지
+bool success
+string message
+
+---
+# Feedback: 실시간 잔여 거리 및 각도 오차
+float32 distance_remaining
+float32 angle_remaining

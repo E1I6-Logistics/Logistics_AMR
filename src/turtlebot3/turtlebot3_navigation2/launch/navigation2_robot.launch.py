@@ -1,0 +1,350 @@
+# Copyright 2019 Open Source Robotics Foundation, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PythonExpression
+
+from launch_ros.actions import Node
+
+from nav2_common.launch import RewrittenYaml
+
+
+TURTLEBOT3_MODEL = os.environ.get('TURTLEBOT3_MODEL', 'burger')
+ROS_DISTRO = os.environ.get('ROS_DISTRO', 'jazzy')
+
+
+def generate_launch_description():
+
+    # ============================================================
+    # 기본 Launch Configuration
+    # ============================================================
+
+    use_sim_time = LaunchConfiguration(
+        'use_sim_time',
+        default='false'
+    )
+
+    autostart = LaunchConfiguration(
+        'autostart',
+        default='true'
+    )
+
+    use_rviz = LaunchConfiguration(
+        'use_rviz',
+        default='false'
+    )
+
+    # ============================================================
+    # Initial Pose
+    # 상위 logitle_robot.launch.py에서 전달받음
+    # ============================================================
+
+    initial_pose_x = LaunchConfiguration('initial_pose_x')
+    initial_pose_y = LaunchConfiguration('initial_pose_y')
+    initial_pose_yaw = LaunchConfiguration('initial_pose_yaw')
+
+    # ============================================================
+    # Map
+    # ============================================================
+
+    map_dir = LaunchConfiguration(
+        'map',
+        default=os.path.join(
+            get_package_share_directory('turtlebot3_navigation2'),
+            'map',
+            'map.yaml'
+        )
+    )
+
+    # ============================================================
+    # Keepout Mask
+    # ============================================================
+
+    mask_yaml_file = LaunchConfiguration(
+        'mask',
+        default=''
+    )
+
+    # ============================================================
+    # Nav2 Parameter File
+    # ============================================================
+
+    param_file_name = TURTLEBOT3_MODEL + '.yaml'
+
+    if ROS_DISTRO == 'humble':
+        param_dir = LaunchConfiguration(
+            'params_file',
+            default=os.path.join(
+                get_package_share_directory('turtlebot3_navigation2'),
+                'param',
+                ROS_DISTRO,
+                param_file_name
+            )
+        )
+    else:
+        param_dir = LaunchConfiguration(
+            'params_file',
+            default=os.path.join(
+                get_package_share_directory('turtlebot3_navigation2'),
+                'param',
+                param_file_name
+            )
+        )
+
+    # ============================================================
+    # AMCL Initial Pose 적용
+    #
+    # burger.yaml 자체를 수정하는 것이 아니라
+    # 실행 시 temporary parameter yaml을 만들어서
+    # 아래 값만 덮어씀.
+    # ============================================================
+
+    configured_params = RewrittenYaml(
+        source_file=param_dir,
+        param_rewrites={
+            'amcl.ros__parameters.set_initial_pose': 'true',
+
+            'amcl.ros__parameters.always_reset_initial_pose': 'false',
+
+            'amcl.ros__parameters.initial_pose.x':
+                initial_pose_x,
+
+            'amcl.ros__parameters.initial_pose.y':
+                initial_pose_y,
+
+            'amcl.ros__parameters.initial_pose.yaw':
+                initial_pose_yaw,
+        },
+        convert_types=True
+    )
+
+    # ============================================================
+    # Nav2 기본 launch 위치
+    # ============================================================
+
+    nav2_launch_file_dir = os.path.join(
+        get_package_share_directory('nav2_bringup'),
+        'launch'
+    )
+
+    # ============================================================
+    # Mask가 있을 때만 Keepout 관련 노드 실행
+    # ============================================================
+
+    has_mask = IfCondition(
+        PythonExpression([
+            "'",
+            mask_yaml_file,
+            "' != ''"
+        ])
+    )
+
+    # ============================================================
+    # Launch Description
+    # ============================================================
+
+    return LaunchDescription([
+
+        # --------------------------------------------------------
+        # Map
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'map',
+            default_value=map_dir,
+            description='Full path to map file to load'
+        ),
+
+        # --------------------------------------------------------
+        # Keepout Mask
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'mask',
+            default_value='',
+            description=(
+                'Full path to filter mask yaml file '
+                '(Optional: leave empty to disable)'
+            )
+        ),
+
+        # --------------------------------------------------------
+        # Nav2 Params
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'params_file',
+            default_value=param_dir,
+            description='Full path to param file to load'
+        ),
+
+        # --------------------------------------------------------
+        # Simulation Time
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='Use simulation (Gazebo) clock if true'
+        ),
+
+        # --------------------------------------------------------
+        # Autostart
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'autostart',
+            default_value='true',
+            description='Automatically startup the nav2 stack'
+        ),
+
+        # --------------------------------------------------------
+        # RViz
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'use_rviz',
+            default_value='false',
+            description='Whether to start RViz'
+        ),
+
+        # --------------------------------------------------------
+        # Initial Pose X
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'initial_pose_x',
+            default_value='0.0',
+            description='Initial AMCL pose X [m]'
+        ),
+
+        # --------------------------------------------------------
+        # Initial Pose Y
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'initial_pose_y',
+            default_value='0.0',
+            description='Initial AMCL pose Y [m]'
+        ),
+
+        # --------------------------------------------------------
+        # Initial Pose Yaw
+        # --------------------------------------------------------
+
+        DeclareLaunchArgument(
+            'initial_pose_yaw',
+            default_value='0.0',
+            description='Initial AMCL pose yaw [rad]'
+        ),
+
+        # ========================================================
+        # 1. Nav2 Core Bringup
+        #
+        # 기존 param_dir 대신 configured_params 사용
+        # ========================================================
+
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                [
+                    get_package_share_directory('turtlebot3_navigation2'),
+                        '/launch/bringup_minimal.launch.py'
+                ]
+            ),
+            launch_arguments={
+                'map': map_dir,
+                'use_sim_time': use_sim_time,
+
+                # 핵심 변경
+                'params_file': configured_params,
+
+                'autostart': autostart,
+                'use_rviz': use_rviz
+            }.items(),
+        ),
+
+        # ========================================================
+        # 2. Keepout Filter Mask Server
+        # ========================================================
+
+        Node(
+            condition=has_mask,
+            package='nav2_map_server',
+            executable='map_server',
+            name='filter_mask_server',
+            output='screen',
+            emulate_tty=True,
+
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'yaml_filename': mask_yaml_file
+            }],
+
+            remappings=[
+                ('/map', '/keepout_filter_mask')
+            ]
+        ),
+
+        # ========================================================
+        # 3. Costmap Filter Info Server
+        # ========================================================
+
+        Node(
+            condition=has_mask,
+            package='nav2_map_server',
+            executable='costmap_filter_info_server',
+            name='costmap_filter_info_server',
+            output='screen',
+            emulate_tty=True,
+
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'type': 0,
+                'filter_info_topic': '/costmap_filter_info',
+                'mask_topic': '/keepout_filter_mask',
+                'base': 0.0,
+                'multiplier': 1.0
+            }]
+        ),
+
+        # ========================================================
+        # 4. Filter Lifecycle Manager
+        # ========================================================
+
+        Node(
+            condition=has_mask,
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_costmap_filters',
+            output='screen',
+            emulate_tty=True,
+
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'autostart': autostart,
+
+                'node_names': [
+                    'filter_mask_server',
+                    'costmap_filter_info_server'
+                ]
+            }]
+        ),
+    ])

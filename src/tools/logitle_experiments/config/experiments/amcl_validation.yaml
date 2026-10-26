@@ -1,0 +1,15 @@
+schema_version: 1
+experiment:
+  type: amcl_validation
+  name: amcl_validation
+  trials_per_reference: 3
+
+initial_localization:
+  position_stddev_m: 0.05
+  yaw_stddev_deg: 5.0
+  settle_sec: 1.0
+
+execution:
+  post_motion_settle_sec: 3.0
+  stationary_duration_sec: 30.0
+  sample_interval_sec: 1.0

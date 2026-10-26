@@ -1,0 +1,73 @@
+schema_version: 1
+experiment:
+  type: navigation_sweep
+  name: speed_sweep
+  trials_per_condition: 5
+
+initial_localization:
+  position_stddev_m: 0.05
+  yaw_stddev_deg: 5.0
+  settle_sec: 1.0
+
+measurement:
+  method: steel_ruler
+  resolution_mm: 1
+
+execution:
+  success_wait_sec: 3.0
+  capture_trace: true
+  condition_order:
+    - speed_300
+    - speed_200
+    - speed_100
+    - speed_100
+    - speed_200
+    - speed_300
+    - speed_200
+    - speed_300
+    - speed_100
+    - speed_100
+    - speed_300
+    - speed_200
+    - speed_300
+    - speed_100
+    - speed_200
+
+record_parameters:
+  controller_server:
+    - goal_checker.xy_goal_tolerance
+    - goal_checker.yaw_goal_tolerance
+    - FollowPath.xy_goal_tolerance
+    - FollowPath.trans_stopped_velocity
+    - FollowPath.acc_lim_x
+    - FollowPath.decel_lim_x
+  velocity_smoother:
+    - max_velocity
+    - max_accel
+    - max_decel
+
+# AMCL 검증과 XY 재시험 후 선택값으로 수정한다. 현재 0.10 m는 1차 후보값이다.
+fixed_parameters:
+  controller_server:
+    goal_checker.xy_goal_tolerance: 0.10
+    goal_checker.yaw_goal_tolerance: 0.25
+
+conditions:
+  - id: speed_300
+    label: 0.30 m/s
+    parameters:
+      controller_server:
+        FollowPath.max_vel_x: 0.30
+        FollowPath.max_speed_xy: 0.30
+  - id: speed_200
+    label: 0.20 m/s
+    parameters:
+      controller_server:
+        FollowPath.max_vel_x: 0.20
+        FollowPath.max_speed_xy: 0.20
+  - id: speed_100
+    label: 0.10 m/s
+    parameters:
+      controller_server:
+        FollowPath.max_vel_x: 0.10
+        FollowPath.max_speed_xy: 0.10

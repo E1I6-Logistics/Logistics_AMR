@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+#
+# Copyright 2025 ROBOTIS CO., LTD.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+import os
+
+from ament_index_python.resources import has_resource
+
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.launch_description import LaunchDescription
+from launch.substitutions import LaunchConfiguration, PythonExpression
+
+from launch_ros.actions import ComposableNodeContainer
+from launch_ros.descriptions import ComposableNode
+
+
+def generate_launch_description() -> LaunchDescription:
+
+    camera_param_name = 'camera'
+    camera_param_default = str(0)
+    camera_param = LaunchConfiguration(
+        camera_param_name,
+        default=camera_param_default,
+    )
+    camera_launch_arg = DeclareLaunchArgument(
+        camera_param_name,
+        default_value=camera_param_default,
+        description='camera ID or name'
+    )
+
+    format_param_name = 'format'
+    format_param_default = str()
+    format_param = LaunchConfiguration(
+        format_param_name,
+        default=format_param_default,
+    )
+    format_launch_arg = DeclareLaunchArgument(
+        format_param_name,
+        default_value=format_param_default,
+        description='pixel format'
+    )
+
+    use_image_view_name = 'use_image_view'
+    use_image_view_default = 'false'
+    use_image_view_param = LaunchConfiguration(use_image_view_name)
+    use_image_view_launch_arg = DeclareLaunchArgument(
+        use_image_view_name,
+        default_value=use_image_view_default,
+        description='Whether to launch image_view (true/false)'
+    )
+
+    width_name = 'width'
+    width_default = '320'
+    width_param = LaunchConfiguration(width_name)
+    width_launch_arg = DeclareLaunchArgument(
+        width_name,
+        default_value=width_default,
+        description='Camera image width'
+    )
+
+    height_name = 'height'
+    height_default = '240'
+    height_param = LaunchConfiguration(height_name)
+    height_launch_arg = DeclareLaunchArgument(
+        height_name,
+        default_value=height_default,
+        description='Camera image height'
+    )
+
+    camera_info_url_name = 'camera_info_url'
+    camera_info_url_default = 'file://' + os.path.expanduser(
+        '~/camera/imx219_320x240.yaml'
+    )
+    camera_info_url_param = LaunchConfiguration(camera_info_url_name)
+    camera_info_url_launch_arg = DeclareLaunchArgument(
+        camera_info_url_name,
+        default_value=camera_info_url_default,
+        description='Camera calibration YAML URL (file://... or package://...)'
+    )
+
+    # ArUco detection runs at 10 Hz, so 15 fps keeps headroom while cutting
+    # camera and image-transport CPU roughly in half compared to ~30 fps.
+    fps_name = 'fps'
+    fps_default = '15'
+    fps_param = LaunchConfiguration(fps_name)
+    fps_launch_arg = DeclareLaunchArgument(
+        fps_name,
+        default_value=fps_default,
+        description='Camera frame rate (sets FrameDurationLimits)'
+    )
+    frame_duration_param = PythonExpression(
+        ['[int(1e6 / float(', fps_param, '))] * 2']
+    )
+
+    composable_nodes = [
+        ComposableNode(
+            package='camera_ros',
+            plugin='camera::CameraNode',
+            parameters=[{
+                'camera': camera_param,
+                'sensor_mode': '1640:1232',
+                'width': width_param,
+                'height': height_param,
+                'format': format_param,
+                'camera_info_url': camera_info_url_param,
+                'FrameDurationLimits': frame_duration_param,
+            }],
+            extra_arguments=[{'use_intra_process_comms': True}],
+        ),
+    ]
+
+    if has_resource('packages', 'image_view'):
+        composable_nodes.append(
+            ComposableNode(
+                package='image_view',
+                plugin='image_view::ImageViewNode',
+                remappings=[('/image', '/camera/image_raw')],
+                extra_arguments=[{'use_intra_process_comms': True}],
+                condition=IfCondition(use_image_view_param),
+            )
+        )
+
+    # Use the Raspberry Pi libcamera build in /usr/local. Sourcing ROS puts
+    # /opt/ros/jazzy/lib (ros-jazzy-libcamera) first in LD_LIBRARY_PATH, and
+    # that build cannot start the Raspberry Pi IPA ("Failed to call start"),
+    # so the camera publishes no frames.
+    rpi_libcamera_dir = '/usr/local/lib/aarch64-linux-gnu'
+    additional_env = {}
+    if os.path.isdir(os.path.join(rpi_libcamera_dir, 'libcamera')):
+        additional_env['LD_LIBRARY_PATH'] = os.pathsep.join(
+            filter(None, [rpi_libcamera_dir, os.environ.get('LD_LIBRARY_PATH', '')])
+        )
+
+    container = ComposableNodeContainer(
+        name='camera_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container',
+        composable_node_descriptions=composable_nodes,
+        additional_env=additional_env,
+    )
+
+    return LaunchDescription([
+        camera_launch_arg,
+        format_launch_arg,
+        use_image_view_launch_arg,
+        width_launch_arg,
+        height_launch_arg,
+        camera_info_url_launch_arg,
+        fps_launch_arg,
+        container,
+    ])

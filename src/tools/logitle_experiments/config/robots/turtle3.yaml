@@ -1,0 +1,19 @@
+schema_version: 1
+robot:
+  name: turtle3
+  ros_domain_id: 33
+  namespace: ""
+topics:
+  amcl_pose: /amcl_pose
+  initialpose: /initialpose
+  cmd_vel: /cmd_vel
+  scan: /scan
+  odom: /odom
+  wheel_odom: /wheel/odom
+  imu: /imu
+actions:
+  navigate_to_pose: /navigate_to_pose
+frames:
+  map: map
+  odom: odom
+  base: base_footprint
