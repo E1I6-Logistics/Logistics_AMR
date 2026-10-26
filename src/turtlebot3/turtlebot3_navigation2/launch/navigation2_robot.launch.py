@@ -265,8 +265,8 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 [
-                    nav2_launch_file_dir,
-                    '/bringup_launch.py'
+                    get_package_share_directory('turtlebot3_navigation2'),
+                        '/launch/bringup_minimal.launch.py'
                 ]
             ),
             launch_arguments={

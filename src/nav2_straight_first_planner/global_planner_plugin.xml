@@ -1,0 +1,5 @@
+<library path="nav2_straight_first_planner">
+  <class name="nav2_straight_first_planner::StraightFirstPlanner" type="nav2_straight_first_planner::StraightFirstPlanner" base_class_type="nav2_core::GlobalPlanner">
+    <description>Collision checked straight segments; A* fallback using SmacPlanner2D.</description>
+  </class>
+</library>

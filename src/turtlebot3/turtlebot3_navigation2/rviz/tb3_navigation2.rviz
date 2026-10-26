@@ -27,20 +27,20 @@ Visualization Manager:
       Color Scheme: map
       Draw Behind: true
       Enabled: true
-      Name: Robot 1 Map
+      Name: Robot 2 Map
       Topic:
         Depth: 1
         Durability Policy: Transient Local
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /robot1/map
+        Value: /robot2/map
       Update Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /robot1/map_updates
+        Value: /robot2/map_updates
       Use Timestamp: false
       Value: true
     - Class: rviz_common/Group
@@ -112,12 +112,12 @@ Visualization Manager:
           Head Length: 0.1
           Length: 0.1
           Line Style: Billboards
-          Line Width: 0.05
+          Line Width: 0.025
           Name: Robot 1 Path
           Offset:
             X: 0
             Y: 0
-            Z: 0
+            Z: 0.05
           Pose Color: 255; 0; 0
           Pose Style: None
           Radius: 0.03
@@ -140,12 +140,12 @@ Visualization Manager:
           Head Length: 0.1
           Length: 0.1
           Line Style: Billboards
-          Line Width: 0.05
+          Line Width: 0.025
           Name: Robot 2 Path
           Offset:
             X: 0
             Y: 0
-            Z: 0
+            Z: 0.05
           Pose Color: 255; 255; 0
           Pose Style: None
           Radius: 0.03
@@ -168,12 +168,12 @@ Visualization Manager:
           Head Length: 0.1
           Length: 0.1
           Line Style: Billboards
-          Line Width: 0.05
+          Line Width: 0.025
           Name: Robot 3 Path
           Offset:
             X: 0
             Y: 0
-            Z: 0
+            Z: 0.05
           Pose Color: 0; 255; 0
           Pose Style: None
           Radius: 0.03
@@ -191,18 +191,6 @@ Visualization Manager:
       Name: Paths
     - Class: rviz_common/Group
       Displays:
-        - Class: rviz_default_plugins/MarkerArray
-          Enabled: true
-          Name: Route Server (robot1)
-          Namespaces: {}
-          Topic:
-            Depth: 5
-            Durability Policy: Transient Local
-            Filter size: 10
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /robot1/route_graph
-          Value: true
         - Class: rviz_default_plugins/MarkerArray
           Enabled: true
           Name: Route Tool (manual load)
