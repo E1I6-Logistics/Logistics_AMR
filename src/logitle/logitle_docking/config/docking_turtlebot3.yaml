@@ -1,0 +1,29 @@
+/**:
+  ros__parameters:
+    # 좌표계 설정
+    odom_frame: "odom"
+    base_frame: "base_footprint"
+
+    # 도크 CAD 및 로봇 기구 규격
+    charger_width: 0.145
+    wing_length: 0.10
+    wing_angle_deg: 22.5
+    robot_rear_length: 0.04  # ⭐️ turtlebot3 전용 특화값 (0.04m)
+
+    # ROI 필터링 영역 (로봇 좌표계 기준)
+    roi_x_min: -1.2
+    roi_x_max: 0.15
+    roi_y_limit: 0.15
+
+    # 도킹 시퀀스 거리 및 제어 설정
+    staging_distance: 0.30
+    steering_lock_dist: 0.10
+    reverse_lateral_gain: 1.8
+    reverse_max_target_yaw_deg: 6.0
+
+    # 최종 블라인드 직선 후진 (Phase 4)
+    final_blind_start_dist: 0.20
+    final_reverse_speed: 0.015
+    final_reverse_tolerance: 0.005
+    final_yaw_hold_kp: 1.5
+    final_yaw_hold_max_w: 0.12
