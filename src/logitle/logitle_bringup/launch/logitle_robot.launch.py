@@ -13,6 +13,7 @@ def generate_launch_description():
     bringup_dir = get_package_share_directory('turtlebot3_bringup')
     nav2_dir = get_package_share_directory('turtlebot3_navigation2')
     aruco_tools_dir = get_package_share_directory('logitle_aruco_tools')
+    docking_dir = get_package_share_directory('logitle_docking')
 
     # ============================================================
     # Robot별 초기 위치
@@ -32,6 +33,14 @@ def generate_launch_description():
         last_char,
         ['0.0', '0.0', '0.0']
     )
+    docking_yaml_file_default = {
+        '1': os.path.join(docking_dir, 'config', 'docking_turtlebot1.yaml'),
+        '2': os.path.join(docking_dir, 'config', 'docking_turtlebot2.yaml'),
+        '3': os.path.join(docking_dir, 'config', 'docking_turtlebot3.yaml'),
+    }.get(
+        last_char,
+        os.path.join(docking_dir, 'config', 'docking_turtlebot1.yaml')
+    )
     use_camera_default = 'false'
     camera_info_url_default = 'file://' + os.path.expanduser(
         '~/camera/imx219_320x240.yaml'
@@ -50,6 +59,7 @@ def generate_launch_description():
     use_nav2 = LaunchConfiguration('use_nav2')
     use_logitle_pose = LaunchConfiguration('use_logitle_pose')
     use_docking = LaunchConfiguration('use_docking')
+    docking_params_file = LaunchConfiguration('docking_params_file')
 
     initial_pose_x = LaunchConfiguration('initial_pose_x')
     initial_pose_y = LaunchConfiguration('initial_pose_y')
@@ -109,6 +119,12 @@ def generate_launch_description():
         'use_docking',
         default_value='true',
         description='Launch logitle docking action server.'
+    )
+
+    declare_docking_params_file_cmd = DeclareLaunchArgument(
+        'docking_params_file',
+        default_value=docking_yaml_file_default,
+        description='Full path to robot-specific docking YAML file to load'
     )
 
     declare_mask_yaml_cmd = DeclareLaunchArgument(
@@ -247,16 +263,8 @@ def generate_launch_description():
         name='logitle_docking_node',
         output='screen',
         parameters=[
-            {
-                'use_sim_time': use_sim_time,
-                'odom_frame': 'odom',
-                'base_frame': 'base_footprint',
-                'charger_width': 0.145,
-                'wing_length': 0.10,
-                'wing_angle_deg': 22.5,
-                'roi_y_limit': 0.15,
-                'staging_distance': 0.45,
-            }
+            docking_params_file,
+            {'use_sim_time': use_sim_time},
         ],
         condition=IfCondition(use_docking),
     )
@@ -297,6 +305,7 @@ def generate_launch_description():
     ld.add_action(declare_use_nav2_cmd)
     ld.add_action(declare_use_logitle_pose_cmd)
     ld.add_action(declare_use_docking_cmd)
+    ld.add_action(declare_docking_params_file_cmd)
     ld.add_action(declare_mask_yaml_cmd)
 
     ld.add_action(declare_initial_pose_x_cmd)
