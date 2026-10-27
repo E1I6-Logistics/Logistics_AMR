@@ -24,6 +24,7 @@
         action_servers: [
           "^/aruco_align_and_correct$",
           "^/precision_dock$",
+          "^/drive_on_heading$",
           "^/navigate_through_poses$"
         ],
 
