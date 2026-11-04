@@ -53,9 +53,15 @@ HEADING_TRIMS_BY_HOST = {
 #     "turtlebot2": "N3:0.056,N4:0.023,N5:0.005",
 #     "turtlebot3": "N3:0.030,N4:0.027",
 # }
+# N5 반영 후 값. robot1 N3 앞 2cm·N4 뒤 1cm, robot2 N3 앞 2cm로 조정했다(2026-11-04).
+# DISTANCE_TRIMS_BY_HOST = {
+#     "turtlebot1": "N3:0.046,N4:0.016,N5:0.010",
+#     "turtlebot2": "N3:0.056,N4:0.023,N5:0.020",
+#     "turtlebot3": "N3:0.030,N4:0.027,N5:0.015",
+# }
 DISTANCE_TRIMS_BY_HOST = {
-    "turtlebot1": "N3:0.046,N4:0.016,N5:0.010",
-    "turtlebot2": "N3:0.056,N4:0.023,N5:0.020",
+    "turtlebot1": "N3:0.026,N4:0.026,N5:0.010",
+    "turtlebot2": "N3:0.036,N4:0.023,N5:0.020",
     "turtlebot3": "N3:0.030,N4:0.027,N5:0.015",
 }
 # 기존 값. N5는 모든 로봇이 지금보다 1.5cm 더 오른쪽(벽을 보는 로봇 기준)에 서도록 +0.015를 더했다(2026-11-04).
@@ -64,10 +70,16 @@ DISTANCE_TRIMS_BY_HOST = {
 #     "turtlebot2": "N4:-0.007,N6:-0.005",
 #     "turtlebot3": "N3:0.025,N4:0.012,N5:0.012,N6:0.017",
 # }
+# N5 반영 후 값. robot2 N5 오른쪽 2cm, robot3 N5·N6 오른쪽 1cm로 조정했다(벽을 보는 로봇 기준, 2026-11-04).
+# LATERAL_TRIMS_BY_HOST = {
+#     "turtlebot1": "N3:0.014,N4:0.020,N5:0.045,N6:0.030",
+#     "turtlebot2": "N4:-0.007,N5:0.015,N6:-0.005",
+#     "turtlebot3": "N3:0.025,N4:0.012,N5:0.027,N6:0.017",
+# }
 LATERAL_TRIMS_BY_HOST = {
     "turtlebot1": "N3:0.014,N4:0.020,N5:0.045,N6:0.030",
-    "turtlebot2": "N4:-0.007,N5:0.015,N6:-0.005",
-    "turtlebot3": "N3:0.025,N4:0.012,N5:0.027,N6:0.017",
+    "turtlebot2": "N4:-0.007,N5:0.035,N6:-0.005",
+    "turtlebot3": "N3:0.025,N4:0.012,N5:0.037,N6:0.027",
 }
 
 
