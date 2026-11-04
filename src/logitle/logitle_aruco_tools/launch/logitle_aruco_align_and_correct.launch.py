@@ -41,10 +41,16 @@ HEADING_TRIMS_BY_HOST = {
 # Wall alignment stop distance trims per robot hostname [m, + = further from
 # the wall], for robots that stop short of where the team wants them.
 # pair_distance_trims:= still wins.
+# 기존 값. N3는 모든 로봇이 지금보다 3.5cm 더 뒤(벽에서 멀리)에 서도록 각 값에 +0.035를 더했다(2026-11-04).
+# DISTANCE_TRIMS_BY_HOST = {
+#     "turtlebot1": "N3:0.011,N4:0.016,N5:-0.005",
+#     "turtlebot2": "N3:0.021,N4:0.023,N5:0.005",
+#     "turtlebot3": "N3:-0.005,N4:0.027",
+# }
 DISTANCE_TRIMS_BY_HOST = {
-    "turtlebot1": "N3:0.011,N4:0.016,N5:-0.005",
-    "turtlebot2": "N3:0.021,N4:0.023,N5:0.005",
-    "turtlebot3": "N3:-0.005,N4:0.027",
+    "turtlebot1": "N3:0.046,N4:0.016,N5:-0.005",
+    "turtlebot2": "N3:0.056,N4:0.023,N5:0.005",
+    "turtlebot3": "N3:0.030,N4:0.027",
 }
 LATERAL_TRIMS_BY_HOST = {
     "turtlebot1": "N3:0.014,N4:0.020,N5:0.030,N6:0.030",
